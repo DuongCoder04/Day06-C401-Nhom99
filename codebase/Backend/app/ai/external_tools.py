@@ -12,7 +12,13 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
+
+# Load .env once so tools work when called directly (not via app startup)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 
 # ── Weather ───────────────────────────────────────────────────────────────────

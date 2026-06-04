@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.ai.text import normalize
 from app.data.menu_store import get_restaurant, load_menu
 from app.models.schemas import Dish, Entities, Suggestion
 
@@ -108,6 +109,22 @@ def _to_suggestion(dish: Dish, reason: str) -> Suggestion:
 
 def recommend(entities: Entities, limit: int = 3) -> list[Suggestion]:
     dishes = load_menu()
+
+    if entities.dish_name:
+        dish_name_norm = normalize(entities.dish_name)
+        filtered = []
+        for dish in dishes:
+            name_norm = normalize(dish.name)
+            cat_norm = normalize(dish.category)
+            if dish_name_norm in name_norm or dish_name_norm in cat_norm or name_norm in dish_name_norm:
+                filtered.append(dish)
+        if filtered:
+            dishes = filtered
+            # If the user query matches a dish name exactly, limit the suggestion cards to 1
+            for dish in dishes:
+                if normalize(dish.name) == dish_name_norm:
+                    limit = 1
+                    break
 
     if entities.budget_max:
         filtered = [dish for dish in dishes if dish.price <= entities.budget_max]

@@ -1,4 +1,6 @@
+import re
 from app.ai.text import extract_budget, extract_group_size, normalize
+from app.data.menu_store import load_menu
 from app.models.schemas import Classification, Entities
 
 
@@ -30,6 +32,35 @@ def classify_intent(message: str) -> Classification:
     entities.group_size = extract_group_size(message)
     # meal_time is only set when user explicitly mentions a meal/time keyword
     entities.meal_time = _infer_meal_time_from_text(text)
+
+    # Extract dish name or category keyword from the message
+    dishes = load_menu()
+    matched_dish = None
+    for dish in sorted(dishes, key=lambda d: len(d.name), reverse=True):
+        if normalize(dish.name) in text:
+            matched_dish = dish.name
+            break
+    if matched_dish:
+        entities.dish_name = matched_dish
+    else:
+        # Check categories and Vietnamese synonyms
+        category_map = {
+            "com": "rice",
+            "pho": "noodle",
+            "bun": "noodle",
+            "salad": "salad",
+            "lau": "hotpot",
+            "pizza": "pizza",
+            "sushi": "sushi",
+            "tra sua": "drink",
+            "sinh to": "drink",
+            "banh mi": "sandwich",
+            "uc ga": "healthy",
+        }
+        for keyword, cat in category_map.items():
+            if keyword in text:
+                entities.dish_name = keyword
+                break
 
     # Diet / preference signals
     if any(token in text for token in ["giam can", "it calo", "healthy", "low cal", "nhe bung", "an nhe", "it dau", "eat clean"]):
@@ -67,7 +98,7 @@ def classify_intent(message: str) -> Classification:
     if any(token in text for token in ["gio hang", "xem gio", "tong tien", "cart", "gio co gi", "don cua toi", "toi da chon gi"]):
         return Classification(intent="VIEW_CART", confidence=0.96, entities=entities)
 
-    if any(token in text for token in ["nho rang", "nho la", "toi thich", "toi khong thich", "khong cay", "di ung", "khong hai san", "khong bo"]):
+    if any(token in text for token in ["nho rang", "nho la", "toi thich", "toi khong thich", "khong cay", "di ung", "khong hai san", "khong bo", "di ung voi"]):
         return Classification(intent="SAVE_PREFERENCE", confidence=0.88, entities=entities)
 
     if any(token in text for token in ["so thich cua toi", "ban nho gi ve toi", "preference"]):
@@ -103,6 +134,9 @@ def classify_intent(message: str) -> Classification:
                                         "can giao", "giao som nhat", "giao nhanh nhat"]):
         return Classification(intent="BY_CONTEXT", confidence=0.90, entities=entities)
 
+    if entities.dish_name:
+        return Classification(intent="FIND_FOOD", confidence=0.9, entities=entities)
+
     # FIND_FOOD — general hunger/food discovery signals
     # Placed before meal_time/delivery-speed BY_CONTEXT to match "tối nay ăn gì" correctly
     find_food_tokens = [
@@ -131,7 +165,8 @@ def classify_intent(message: str) -> Classification:
     if entities.preference_hint:
         return Classification(intent="BY_DIET", confidence=0.9, entities=entities)
 
-    if any(token in text for token in ["yumi", "ban la ai", "cam on", "hello", "hi", "chao"]):
+    has_hi_or_chao = bool(re.search(r'\b(hi|chao)\b', text))
+    if any(token in text for token in ["yumi", "ban la ai", "cam on", "hello"]) or has_hi_or_chao:
         return Classification(intent="CHITCHAT", confidence=0.9, entities=entities)
 
     return Classification(intent="UNKNOWN", confidence=0.3, entities=entities)

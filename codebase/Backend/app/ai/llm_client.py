@@ -35,17 +35,22 @@ Luật bắt buộc:
 """
 
 REPLY_SYSTEM_PROMPT = """
-Bạn là Yumi, trợ lý đặt đồ ăn thông minh và thân thiện của người dùng Việt Nam.
-Phong cách: thân thiện, ngắn gọn, tự nhiên như người thật. Dùng "bạn/mình".
+Bạn là Yumi, trợ lý đặt đồ ăn thông minh, năng động và thân thiện của người dùng Việt Nam.
+Hãy trò chuyện tự nhiên, vui vẻ như một người bạn thực sự đang tư vấn ăn uống.
+Xưng hô thân mật: "mình" - "bạn".
 
-Quy tắc khi sinh reply:
-- Trả lời TRỰC TIẾP vào điều user hỏi — không nói chung chung.
-- Đề cập tên món cụ thể từ danh sách gợi ý (nếu có).
-- Nếu có dữ liệu thời tiết thực → dùng thông tin đó để giải thích lý do.
-- Nếu có kết quả tìm kiếm web → tóm tắt ngắn gọn, trích dẫn nguồn nếu cần.
-- Giữ reply NGẮN: 1-3 câu text. Đừng liệt kê lại toàn bộ món.
-- Kết thúc bằng một câu mời hành động tiếp theo (thêm giỏ, hỏi thêm...).
-- KHÔNG bịa thông tin. Nếu không có dữ liệu → thành thật nói không biết.
+Hướng dẫn hội thoại để văn phong tự nhiên:
+1. Trả lời trực tiếp và ngắn gọn vào câu hỏi (khoảng 2-3 câu). Tránh văn phong rập khuôn, hành chính.
+2. Giới thiệu món ăn kèm theo tính từ gợi cảm giác ngon miệng và lý do thuyết phục (ví dụ: ấm nóng ngày mưa, nhẹ bụng giữ dáng, mát lạnh sảng khoái). Tránh liệt kê khô khan.
+3. Điều chỉnh linh hoạt số lượng món giới thiệu dựa trên ngữ cảnh:
+   - Nếu user hỏi cụ thể 1 món/quán: Tập trung mô tả chi tiết món/quán đó, tuyệt đối không liệt kê các món khác ngoài lề.
+   - Nếu user nhờ gợi ý chung chung hoặc tìm món: Đưa ra 2-3 lựa chọn khác nhau từ menu gợi ý để họ lựa chọn.
+4. Tích hợp thời tiết hoặc ngân sách một cách tinh tế nếu có trong ngữ cảnh. Không lặp đi lặp lại cùng một câu thời tiết ở các lượt hội thoại kế tiếp nhau.
+5. Luôn kết thúc bằng một câu hỏi gợi mở tự nhiên để hỗ trợ họ đặt hàng (thêm vào giỏ, xem menu, chốt đơn).
+
+Ví dụ phản hồi tốt:
+User: "Trời mưa lạnh thế này ăn gì ngon mình ơi?"
+Yumi: "Mưa lạnh thế này thì làm một tô Bún bò Huế nóng hổi, cay tê là chuẩn bài nhất luôn bạn ơi! Mình gợi ý quán Bún Bò Cô Liên đang mở cửa gần bạn nè, bạn có muốn thêm món này vào giỏ hàng luôn không?"
 """
 
 
@@ -124,61 +129,72 @@ def generate_reply(
     raise LLMUnavailable("No LLM provider configured")
 
 
-def _build_context_prompt(user_message: str, ctx: dict[str, Any]) -> str:
-    """Serialize agent_context into a clear text block for the LLM."""
-    parts = [f"Câu hỏi của user: {user_message}\n"]
+def _build_context_prompt(ctx: dict[str, Any]) -> str:
+    """Serialize agent_context into a structured metadata block for the LLM."""
+    parts = ["[SYSTEM METADATA - THÔNG TIN NGỮ CẢNH ĐỂ TRẢ LỜI]"]
 
     weather = ctx.get("weather")
     if weather and weather.get("available"):
-        parts.append(f"Thời tiết hiện tại: {weather['summary']}")
+        parts.append(f"- Thời tiết hiện tại: {weather['summary']}")
+
+    web = ctx.get("web_search")
+    has_web_answer = web and web.get("available") and web.get("answer")
+    if has_web_answer:
+        parts.append(f"- Kết quả tìm kiếm web (ưu tiên sử dụng thông tin này): {web['answer']}")
+        if web.get("results"):
+            for r in web["results"][:2]:
+                parts.append(f"  * {r['title']}: {r['content'][:150]}")
 
     suggestions = ctx.get("suggestions", [])
-    if suggestions:
+    if suggestions and not has_web_answer:
         lines = []
+        seen_names = set()
         for i, s in enumerate(suggestions[:3], 1):
+            name = s.get("name", "")
+            if name in seen_names:
+                continue
+            seen_names.add(name)
             open_str = "đang mở" if s.get("is_open") else "đóng"
             delivery = f"{s['delivery_minutes']} phút" if s.get("delivery_minutes") else "?"
             lines.append(
                 f"  {i}. {s['name']} — {s['price']:,}đ — {s['restaurant']} ({open_str}, giao {delivery})"
-                f"\n     Lý do gợi ý: {s.get('reason', '')}"
+                f"\n     Lý do: {s.get('reason', '')}"
             )
-        parts.append("Món gợi ý từ menu:\n" + "\n".join(lines))
-
-    web = ctx.get("web_search")
-    if web and web.get("available") and web.get("answer"):
-        parts.append(f"Kết quả tìm kiếm web: {web['answer']}")
+        if lines:
+            parts.append("- Món ăn gợi ý từ menu:\n" + "\n".join(lines))
+    elif suggestions and has_web_answer:
+        top = suggestions[0]
+        parts.append(
+            f"- Món ăn trong menu: {top.get('name')} ({top.get('price', 0):,}đ) — "
+            f"có thể gợi ý kèm nếu phù hợp."
+        )
 
     cart = ctx.get("cart")
     if cart and cart.get("item_count", 0) > 0:
-        parts.append(f"Giỏ hàng hiện tại: {cart['item_count']} món, tổng {cart['total']:,}đ")
+        parts.append(f"- Giỏ hàng hiện tại: {cart['item_count']} món, tổng {cart['total']:,}đ")
 
-    # Availability data
     availability = ctx.get("availability")
     if availability:
-        parts.append(f"Thông tin quán/món: {availability}")
+        parts.append(f"- Thông tin quán/món: {availability}")
 
-    # Saved preferences
     prefs = ctx.get("preferences")
     if prefs:
-        lines = [f"{k}: {v}" for k, v in prefs.items()]
-        parts.append("Sở thích đã lưu:\n" + "\n".join(lines))
+        lines = [f"  * {k}: {v}" for k, v in prefs.items()]
+        parts.append("- Sở thích đã lưu:\n" + "\n".join(lines))
 
-    # Added dish (cart action)
     added = ctx.get("added_dish")
     if added:
-        parts.append(f"Đã thêm vào giỏ: {added}")
+        parts.append(f"- Đã thêm vào giỏ: {added}")
 
-    # Saved preference (save_preference action)
     saved = ctx.get("saved")
     if saved:
-        parts.append(f"Vừa lưu sở thích: {saved}")
+        parts.append(f"- Vừa lưu sở thích: {saved}")
 
     intent = ctx.get("intent", "")
     if intent:
-        parts.append(f"Intent đã phân loại: {intent}")
+        parts.append(f"- Intent: {intent}")
 
-    parts.append("\nHãy trả lời tự nhiên, ngắn gọn, đề cập tên món cụ thể nếu có.")
-    return "\n\n".join(parts)
+    return "\n".join(parts)
 
 
 def _generate_reply_openai(
@@ -191,17 +207,18 @@ def _generate_reply_openai(
         raise LLMUnavailable("OPENAI_API_KEY is not set")
 
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    context_prompt = _build_context_prompt(user_message, agent_context)
+    context_prompt = _build_context_prompt(agent_context)
+    final_user_content = f"{context_prompt}\n\nTin nhắn thực tế từ người dùng: {user_message}"
 
     body = {
         "model": model,
         "messages": [
             {"role": "system", "content": REPLY_SYSTEM_PROMPT},
             *(recent_history or [])[-4:],
-            {"role": "user", "content": context_prompt},
+            {"role": "user", "content": final_user_content},
         ],
         "temperature": 0.7,
-        "max_tokens": 300,
+        "max_tokens": 512,
     }
 
     req = urllib.request.Request(
@@ -230,20 +247,21 @@ def _generate_reply_gemini(
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
-    context_prompt = _build_context_prompt(user_message, agent_context)
+    context_prompt = _build_context_prompt(agent_context)
+    final_user_content = f"{context_prompt}\n\nTin nhắn thực tế từ người dùng: {user_message}"
 
     contents: list[dict[str, Any]] = []
     for item in (recent_history or [])[-4:]:
         role = "model" if item.get("role") == "assistant" else "user"
         contents.append({"role": role, "parts": [{"text": item.get("content", "")}]})
-    contents.append({"role": "user", "parts": [{"text": context_prompt}]})
+    contents.append({"role": "user", "parts": [{"text": final_user_content}]})
 
     body = {
         "systemInstruction": {"parts": [{"text": REPLY_SYSTEM_PROMPT}]},
         "contents": contents,
         "generationConfig": {
             "temperature": 0.7,
-            "maxOutputTokens": 300,
+            "maxOutputTokens": 800,
         },
     }
 
@@ -257,7 +275,16 @@ def _generate_reply_gemini(
         with urllib.request.urlopen(req, timeout=20) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        return "".join(p.get("text", "") for p in parts).strip()
+        text = "".join(p.get("text", "") for p in parts).strip()
+        # Guard against truncated replies (Gemini may cut mid-sentence on token limit)
+        if text and not text[-1] in ".!?…\"'":
+            # Find the last complete sentence
+            for end_char in (".", "!", "?", "…"):
+                last = text.rfind(end_char)
+                if last > len(text) // 2:  # only trim if not cutting too much
+                    text = text[: last + 1]
+                    break
+        return text or ""
     except Exception as exc:
         raise LLMUnavailable(str(exc)) from exc
 

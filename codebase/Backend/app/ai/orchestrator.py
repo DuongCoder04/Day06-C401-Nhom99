@@ -208,8 +208,28 @@ def _collect_context(
     text_norm = normalize(request.message)
     needs_web = any(
         token in text_norm
-        for token in ["review", "ngon nhat", "dau ngon", "danh gia", "noi tieng", "noi nao ngon"]
-    ) or intent == "FIND_FOOD" and "ngon" in text_norm
+        for token in [
+            "review", "ngon nhat", "dau ngon", "danh gia", "noi tieng",
+            "noi nao ngon", "quan nao", "o dau ngon", "quan ngon",
+            "goi y quan", "cho biet quan", "quan pho", "quan bun",
+        ]
+    ) or (intent == "FIND_FOOD" and any(t in text_norm for t in ["ngon", "review", "quan"]))
+
+    # Detect "asking about restaurant" vs "asking about dishes"
+    # When asking about a restaurant, we should NOT show irrelevant mock menu items
+    from app.data.menu_store import load_restaurants
+    restaurants = load_restaurants()
+    mentioned_restaurant = any(normalize(name) in text_norm for name in restaurants.keys())
+
+    is_restaurant_query = any(
+        token in text_norm
+        for token in [
+            "quan nao ngon", "quan o dau", "review quan", "noi nao ngon",
+            "dia chi", "quan ngon", "goi y quan", "quan pho", "quan bun",
+            "quan com", "quan ga", "ten quan", "quan an nao",
+            "o dau", "may gio", "mo cua", "dong cua", "review", "danh gia", "thong tin"
+        ]
+    ) or (needs_web and "quan" in text_norm) or (mentioned_restaurant and any(kw in text_norm for kw in ["o dau", "dia chi", "may gio", "mo cua", "review", "thong tin"]))
 
     def _fetch_weather() -> dict:
         city = tool_args.get("city", _DEFAULT_CITY)
@@ -225,6 +245,9 @@ def _collect_context(
         if weather_result.get("available") and not entities.weather:
             entities.weather = weather_result.get("condition")
         if intent in {"FIND_FOOD", "BY_BUDGET", "BY_DIET", "BY_CONTEXT", "BY_GROUP", "RECOMMEND_COMBO"}:
+            # Don't fetch mock suggestions if this is a restaurant query (web search will handle it)
+            if is_restaurant_query:
+                return []
             return recommend(entities)
         return []
 
@@ -259,6 +282,24 @@ def _collect_context(
                 ctx["web_search"] = futures["web"].result(timeout=8)
             except Exception:
                 ctx["web_search"] = {"available": False}
+
+        # If web search returned a good answer about restaurants, clear mock suggestions
+        web_result = ctx.get("web_search", {})
+        if web_result.get("available") and web_result.get("answer") and is_restaurant_query:
+            ctx["suggestions"] = []
+
+        # Dedup suggestions by dish id
+        seen_ids: set[str] = set()
+        deduped = []
+        for s in ctx.get("suggestions", []):
+            dish_id = s.get("id", "")
+            if dish_id not in seen_ids:
+                seen_ids.add(dish_id)
+                deduped.append(s)
+        ctx["suggestions"] = deduped
+
+        # Flag for downstream use
+        ctx["is_restaurant_query"] = is_restaurant_query
 
     return ctx
 
@@ -396,6 +437,16 @@ def _extract_preference(message: str, tool_args: dict) -> tuple[str, str]:
         return "budget", str(budget)
     if "khong cay" in text:
         return "spice", "không cay"
+    # Avoid / allergy signals → map to "avoid" key
+    if "di ung" in text or "khong an" in text or "khong thich" in text:
+        food_map = {
+            "hai san": "hải sản", "bo ": "bò", "lon ": "lợn",
+            "ga ": "gà", "gluten": "gluten", "sua ": "sữa", "trung ": "trứng",
+        }
+        for raw, label in food_map.items():
+            if raw in text:
+                return "avoid", label
+        return "avoid", message.strip()
     if "giam can" in text or "healthy" in text or "an nhe" in text:
         return "diet", "low_cal"
     if "protein" in text or "tap gym" in text:
@@ -512,11 +563,11 @@ def orchestrate(request: ChatRequest) -> ChatResponse:
         dish = _resolve_dish(request.session_id, request.message, entities.dish_ref)
         if not dish:
             return _finalize(request.session_id, ChatResponse(
-                reply='Bạn muốn thêm món nào? Nói "thêm món đầu tiên", "thêm món thứ hai" hoặc bấm Thêm trên card.',
+                reply='Bạn muốn thêm món nào? Hãy nói "thêm món đầu tiên", "thêm món thứ hai" hoặc bấm nút Thêm trực tiếp trên thẻ món ăn nhé.',
                 intent=intent, action="clarify",
                 suggestions=_get_last_suggestions(request.session_id),
                 cart_summary=get_cart(request.session_id),
-                clarification_question="Bạn muốn thêm món nào?",
+                clarification_question=None,
             ))
         cart = add_to_cart(request.session_id, dish.id, entities.quantity)
         log_event(request.session_id, "add_to_cart", {"dish_id": dish.id, "name": dish.name, "quantity": entities.quantity})
@@ -533,8 +584,9 @@ def orchestrate(request: ChatRequest) -> ChatResponse:
     # ── Clarification needed ──────────────────────────────────────────────────
     if classification.confidence < 0.85:
         question = llm_question or "Bạn muốn ăn nhẹ hay ăn no bụng?"
+        reply = "Yumi chưa rõ ý bạn lắm. Bạn vui lòng làm rõ giúp mình nhé:"
         return _finalize(request.session_id, ChatResponse(
-            reply=question, intent=intent, action="clarify",
+            reply=reply, intent=intent, action="clarify",
             suggestions=[], cart_summary=get_cart(request.session_id),
             clarification_question=question,
         ))
@@ -543,13 +595,18 @@ def orchestrate(request: ChatRequest) -> ChatResponse:
     # Collect all tool results in parallel
     ctx = _collect_context(request, intent, entities, tool_args)
 
-    # Build suggestions list from ctx
+    # Build suggestions list from ctx — deduped and only when relevant
     suggestions_data = ctx.get("suggestions", [])
     suggestions = []
-    if suggestions_data:
+    seen_ids: set[str] = set()
+    if suggestions_data and not ctx.get("is_restaurant_query"):
         dishes_by_id = {d.id: d for d in load_menu()}
         for s_dict in suggestions_data:
-            dish = dishes_by_id.get(s_dict.get("id", ""))
+            dish_id = s_dict.get("id", "")
+            if dish_id in seen_ids:
+                continue
+            seen_ids.add(dish_id)
+            dish = dishes_by_id.get(dish_id)
             if dish:
                 suggestions.append(Suggestion(
                     **dish.model_dump(),

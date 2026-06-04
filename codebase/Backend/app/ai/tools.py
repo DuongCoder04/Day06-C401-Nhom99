@@ -6,20 +6,22 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_menu",
-            "description": "Tìm món ăn trong menu theo ngân sách, chế độ ăn, bối cảnh hoặc nhóm người.",
+            "description": "Tìm món ăn trong menu theo tên món, ngân sách, chế độ ăn, bối cảnh hoặc nhóm người.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "dish_name": {"type": ["string", "null"], "description": "Tên món hoặc từ khóa món ăn cần tìm, ví dụ 'phở', 'cơm sườn', 'salad'."},
                     "budget_max": {"type": ["integer", "null"], "description": "Giá tối đa bằng VND."},
                     "diet_type": {"type": ["string", "null"], "enum": ["low_cal", "high_protein", "vegetarian", None]},
                     "weather": {"type": ["string", "null"], "enum": ["rain", "cold", "hot", None]},
                     "group_size": {"type": ["integer", "null"], "description": "Số người ăn cùng."},
                     "max_delivery_minutes": {"type": ["integer", "null"], "description": "Thời gian giao tối đa."},
                 },
-                "required": ["budget_max", "diet_type", "weather", "group_size", "max_delivery_minutes"],
+                "required": ["dish_name", "budget_max", "diet_type", "weather", "group_size", "max_delivery_minutes"],
             },
         },
     },
+
     {
         "type": "function",
         "function": {
@@ -145,6 +147,7 @@ TOOL_DEFINITIONS = [
 
 def tool_args_to_entities(args: dict) -> Entities:
     return Entities(
+        dish_name=args.get("dish_name"),
         budget_max=args.get("budget_max"),
         diet_type=args.get("diet_type"),
         weather=args.get("weather"),

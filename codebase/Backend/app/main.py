@@ -59,7 +59,11 @@ def health_check() -> dict:
 
 @app.get("/api/config")
 def config() -> dict:
+    from app.ai.external_tools import get_weather as _gw, search_web as _sw
+    import os
     return {
         "llm_enabled": has_llm_config(),
         "mode": provider_mode(),
+        "weather_enabled": bool(os.getenv("OPENWEATHERMAP_API_KEY", "").strip()),
+        "web_search_enabled": bool(os.getenv("TAVILY_API_KEY", "").strip()),
     }

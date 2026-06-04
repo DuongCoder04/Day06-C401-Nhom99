@@ -7,6 +7,7 @@ import { MenuSearch } from './components/menu/MenuSearch'
 import { OnboardingModal } from './components/onboarding/OnboardingModal'
 import { ErrorState } from './components/ui/ErrorState'
 import { useAppState } from './hooks/useAppState'
+import { useConfig } from './hooks/useConfig'
 
 function App() {
   const {
@@ -21,6 +22,8 @@ function App() {
     savePreferences,
     skipOnboarding,
   } = useAppState()
+
+  const config = useConfig()
 
   if (!sessionId) {
     return <div className="boot-screen">Loading Yumi…</div>
@@ -89,6 +92,7 @@ function App() {
             onQuickAction={(value) => void sendChatMessage(value)}
             onReset={chat.resetChat}
             onAddToCart={(id) => void addToCartFromChat(id)}
+            config={config}
           />
         )}
         right={(

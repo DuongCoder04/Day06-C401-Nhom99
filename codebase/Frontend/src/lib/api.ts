@@ -26,6 +26,17 @@ export function getMenu() {
   return request<MenuItem[]>('/menu')
 }
 
+export type BackendConfig = {
+  llm_enabled: boolean
+  mode: string
+  weather_enabled: boolean
+  web_search_enabled: boolean
+}
+
+export function getConfig() {
+  return request<BackendConfig>('/config')
+}
+
 export function sendChat(payload: { message: string; sessionId: string; userContext: UserContext }) {
   return request<ChatResponse>('/chat', {
     method: 'POST',

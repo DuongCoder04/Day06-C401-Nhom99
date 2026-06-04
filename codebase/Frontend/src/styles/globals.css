@@ -9,22 +9,22 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 15px;
   line-height: 1.5;
-  color: #1d211f;
-  background: #f6f4ef;
+  color: #2b302d;
+  background: #faf8f5;
 
-  --bg: #f6f4ef;
-  --panel: #fffaf2;
+  --bg: #faf8f5;
+  --panel: #fcfbfa;
   --card: #ffffff;
-  --ink: #1d211f;
-  --muted: #747b75;
-  --line: #e7ded0;
-  --green: #0f7a68;
-  --green-dark: #0a5d51;
-  --green-soft: #e3f3ee;
-  --orange: #e36536;
-  --orange-soft: #fae5db;
-  --shadow: 0 20px 50px rgba(28, 38, 32, 0.09);
-  --radius: 12px;
+  --ink: #222724;
+  --muted: #6f7873;
+  --line: #e3ded5;
+  --green: #006b54;
+  --green-dark: #004d3c;
+  --green-soft: #e6f5f0;
+  --orange: #ff5a36;
+  --orange-soft: #fff0ed;
+  --shadow: 0 12px 40px rgba(45, 54, 49, 0.06);
+  --radius: 16px;
   --panel-height: calc(100vh - 36px);
 }
 
@@ -441,55 +441,202 @@ img {
 /* ─── Messages ───────────────────────────────────────────────── */
 .message {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 18px;
+  animation: messageSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message.user {
   justify-content: flex-end;
 }
 
+/* Avatar styling */
+.message-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.assistant-avatar {
+  background: linear-gradient(135deg, var(--orange), #ff7b5c);
+  border: 1.5px solid #fff;
+}
+
+.user-avatar {
+  background: linear-gradient(135deg, #4f5b55, #2b332f);
+  border: 1.5px solid #fff;
+}
+
+/* Bubble wrapper & Sender */
+.bubble-wrapper {
+  display: flex;
+  flex-direction: column;
+  max-width: min(600px, 75%);
+}
+
+.message.user .bubble-wrapper {
+  align-items: flex-end;
+}
+
+.bubble-sender {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 4px;
+  margin-left: 6px;
+  letter-spacing: 0.03em;
+}
+
+.message.user .bubble-sender {
+  margin-left: 0;
+  margin-right: 6px;
+}
+
 .bubble {
-  max-width: min(640px, 90%);
-  padding: 12px 14px;
+  padding: 14px 18px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 18px 18px 18px 4px;
   background: #fff;
-  line-height: 1.55;
-  font-size: 14px;
+  line-height: 1.6;
+  font-size: 14.5px;
+  box-shadow: 0 2px 12px rgba(28, 38, 32, 0.015);
+  transition: all 0.2s ease;
 }
 
 .message.user .bubble {
   color: #fff;
-  border-color: var(--green);
-  background: var(--green);
+  border: 0;
+  background: linear-gradient(135deg, var(--green), var(--green-dark));
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 6px 20px rgba(0, 107, 84, 0.15);
+}
+
+/* Custom Markdown Elements inside message bubble */
+.bubble-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-paragraph {
+  margin-bottom: 6px;
+}
+
+.ai-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.ai-paragraph-spacing {
+  height: 10px;
+}
+
+.ai-heading {
+  font-size: 15px;
+  font-weight: 800;
+  margin: 12px 0 6px;
+  color: var(--green-dark);
+}
+
+.message.user .ai-heading {
+  color: #fff;
+}
+
+.ai-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+
+.ai-list-item:last-child {
+  margin-bottom: 0;
+}
+
+.ai-list-bullet {
+  color: var(--orange);
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.message.user .ai-list-bullet {
+  color: #fff;
+}
+
+.ai-list-num {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 13.5px;
+  min-width: 16px;
+}
+
+.message.user .ai-list-num {
+  color: #fff;
+}
+
+.ai-list-text {
+  flex: 1;
+}
+
+.ai-highlight {
+  color: var(--orange);
+  font-weight: 800;
+  background: rgba(255, 90, 54, 0.05);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.message.user .ai-highlight {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* ─── Suggestion cards (inside bubble) ──────────────────────── */
 .suggestion-list {
   display: grid;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 12px;
+  margin-top: 14px;
 }
 
 .suggestion-card {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 10px;
-  padding: 10px;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 16px;
   background: #fff;
-  transition: box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .suggestion-card:hover {
-  box-shadow: 0 4px 16px rgba(15, 122, 104, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 122, 104, 0.08);
+  border-color: var(--green);
 }
 
 .suggestion-card img {
-  width: 90px;
-  height: 78px;
-  border-radius: 8px;
+  width: 100px;
+  height: 84px;
+  border-radius: 10px;
   object-fit: cover;
 }
 
@@ -497,12 +644,13 @@ img {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .suggestion-body strong {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -516,24 +664,29 @@ img {
 .suggestion-body .suggestion-reason {
   font-size: 12px;
   color: var(--green-dark);
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 2px;
 }
 
 .suggestion-body .suggestion-add-btn {
-  margin-top: 6px;
+  margin-top: 8px;
   align-self: flex-start;
-  min-height: 30px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 0 14px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
   color: #fff;
   background: var(--green);
-  transition: background 0.15s;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(15, 122, 104, 0.2);
 }
 
 .suggestion-body .suggestion-add-btn:hover {
   background: var(--green-dark);
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(15, 122, 104, 0.3);
 }
 
 /* ─── Right panel / Cart ─────────────────────────────────────── */
@@ -917,4 +1070,25 @@ img {
 @keyframes typing-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
   30% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* ─── Agent mode badges ─────────────────────────────────────────── */
+.badge--green {
+  color: #0a5d51;
+  background: #c5ede5;
+}
+
+.badge--blue {
+  color: #1a5fa8;
+  background: #dbeafe;
+}
+
+.badge--orange {
+  color: #9a3412;
+  background: #fed7aa;
+}
+
+.badge--muted {
+  color: var(--muted);
+  background: #f0ece4;
 }

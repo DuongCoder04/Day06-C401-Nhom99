@@ -58,6 +58,7 @@ class Entities(BaseModel):
     quantity: int = 1
     meal_time: str | None = None
     preference_hint: str | None = None
+    dish_name: str | None = None
 
 
 class Classification(BaseModel):
