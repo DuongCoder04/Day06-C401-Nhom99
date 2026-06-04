@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yumi - AI Food Ordering</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <aside class="sidebar">
+        <div class="brand-card">
+          <div class="brand-mark">Y</div>
+          <div>
+            <h1>Yumi</h1>
+            <p>AI ordering copilot</p>
+          </div>
+        </div>
+
+        <section class="sidebar-section">
+          <div class="section-head">
+            <h2>Gợi ý nhanh</h2>
+            <span>1 chạm</span>
+          </div>
+          <div class="quick-actions">
+            <button data-message="Ăn gì giờ?">Ăn gì giờ?</button>
+            <button data-message="Có gì dưới 80k?">Dưới 80k</button>
+            <button data-message="Tôi đang giảm cân">Giảm cân</button>
+            <button data-message="Trời mưa ăn gì ngon?">Trời mưa</button>
+            <button data-message="Đặt cho 4 người">Cho nhóm</button>
+            <button data-message="Xem giỏ hàng">Xem giỏ</button>
+          </div>
+        </section>
+
+        <section class="sidebar-section analytics-card">
+          <div class="section-head">
+            <h2>Analytics</h2>
+            <span id="analytics-status">live</span>
+          </div>
+          <div id="analytics-panel" class="analytics-grid"></div>
+        </section>
+
+        <section class="sidebar-section menu-card">
+          <div class="section-head">
+            <h2>Menu mẫu</h2>
+            <span id="menu-count">0 món</span>
+          </div>
+          <div id="menu-list" class="mini-menu"></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Conversational food delivery</p>
+            <h2>Đặt món bằng hội thoại</h2>
+          </div>
+          <div class="runtime-pill">
+            <i></i>
+            <span id="runtime-mode">Yumi đang sẵn sàng</span>
+          </div>
+        </header>
+
+        <section class="chat-panel">
+          <div class="chat-hero">
+            <div>
+              <p>Yumi hiểu nhu cầu, gọi tool dữ liệu và chỉ gợi ý món có thật trong menu.</p>
+              <div class="hero-tags">
+                <span>Gemini tools</span>
+                <span>SQLite memory</span>
+                <span>Delivery-aware</span>
+              </div>
+            </div>
+            <button id="reset-button" title="Làm mới" aria-label="Làm mới">↻</button>
+          </div>
+
+          <div id="messages" class="messages" aria-live="polite"></div>
+
+          <form id="chat-form" class="composer">
+            <input id="chat-input" placeholder="Nhắn Yumi: ăn gì dưới 80k, thêm món đầu tiên..." autocomplete="off" />
+            <button>Gửi</button>
+          </form>
+        </section>
+      </section>
+
+      <aside class="cart-panel">
+        <div class="cart-top">
+          <div>
+            <p class="eyebrow">Checkout preview</p>
+            <h2>Giỏ hàng</h2>
+            <span id="cart-subtitle">Chưa có món nào</span>
+          </div>
+          <strong id="cart-total">0đ</strong>
+        </div>
+
+        <div id="cart-items" class="cart-items empty">Chọn món từ card gợi ý để thêm vào giỏ.</div>
+
+        <div class="cart-footer">
+          <div class="cart-note">
+            <span>Demo checkout</span>
+            <strong>Không thanh toán thật</strong>
+          </div>
+          <button id="checkout-button" disabled>Đặt hàng demo</button>
+        </div>
+      </aside>
+    </main>
+
+    <div id="onboarding-modal" class="modal-backdrop">
+      <section class="modal-card onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+        <div class="modal-kicker">Setup nhanh</div>
+        <h2 id="onboarding-title">Cá nhân hóa Yumi</h2>
+        <p>Cho Yumi biết ngân sách, khẩu vị và dị ứng để gợi ý món sát hơn.</p>
+        <form id="onboarding-form" class="onboarding-form">
+          <label>
+            Ngân sách trung bình
+            <select id="onboarding-budget">
+              <option value="60000">Dưới 60.000đ</option>
+              <option value="80000" selected>Dưới 80.000đ</option>
+              <option value="120000">Dưới 120.000đ</option>
+              <option value="200000">Thoải mái hơn</option>
+            </select>
+          </label>
+          <label>
+            Khẩu vị ưu tiên
+            <select id="onboarding-cuisine">
+              <option value="vietnamese">Món Việt</option>
+              <option value="japanese">Món Nhật</option>
+              <option value="korean">Món Hàn</option>
+              <option value="western">Món Âu</option>
+              <option value="vegetarian">Món chay</option>
+            </select>
+          </label>
+          <label>
+            Dị ứng / tránh món
+            <input id="onboarding-allergy" placeholder="VD: không cay, không hải sản..." />
+          </label>
+          <div class="modal-actions">
+            <button type="button" id="skip-onboarding" class="ghost-button">Bỏ qua</button>
+            <button type="submit">Lưu sở thích</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="success-modal" class="modal-backdrop hidden">
+      <section class="modal-card success-card" role="dialog" aria-modal="true" aria-labelledby="success-title">
+        <div class="success-mark">✓</div>
+        <p class="modal-kicker">Order placed</p>
+        <h2 id="success-title">Đặt hàng demo thành công</h2>
+        <p>Yumi đã tạo đơn demo từ giỏ hàng hiện tại. Bạn có thể quay lại để tiếp tục thử các flow AI khác.</p>
+        <div class="success-summary">
+          <span>Trạng thái</span>
+          <strong>Đang chuẩn bị</strong>
+        </div>
+        <button id="close-success">Quay lại Yumi</button>
+      </section>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
