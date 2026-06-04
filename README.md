@@ -1,103 +1,81 @@
-# Batch 02 · Day 06 — AI Product Hackathon
+# Day 05 Lab — Khởi Động Dự Án AI Product
 
-> SPEC → Prototype → Demo. Hôm nay không có bài giảng mới — hôm nay chứng minh: SPEC là giả thuyết, prototype là bằng chứng, demo là thuyết phục.
+> Tìm vấn đề thật → gom bằng chứng → chốt một lát cắt nhỏ → viết thin SPEC → sẵn sàng build prototype trong Day 06.
 
----
+Day 05 không phải một buổi học đầy đủ về AI Product Management. Đây là ngày **khởi động mini-hackathon Day 06**. Cuối ngày, nhóm chưa cần có prototype hoàn chỉnh, nhưng phải đủ rõ để sáng mai build ngay.
 
-## Cách nộp bài
+## Tài liệu trong folder này
 
-**Đại diện nhóm tạo MỘT repo nhóm**, đặt tên:
+Folder này được chia theo đúng việc cần làm:
 
-```
-Day06-Lop-NhomXX
-```
+| Folder / File | Dùng để làm gì |
+|---|---|
+| `01-invidual-workshop/app-teardown.md` | Bài mổ app AI thật: dùng thử, vẽ flow, tìm path yếu, viết finding thành quyết định product. |
+| `02-group-spec/` | Bộ template cho phần nhóm: gom bằng chứng, chuyển evidence thành insight/opportunity/build slice, và viết thin SPEC cuối Day 05. |
 
-Ví dụ: `Day06-C401-Nhom03`
+## Cấu trúc repo nộp bài Day 06
 
-- **README của repo nhóm phải liệt kê đủ thành viên** — mỗi người gồm **mã học viên + họ và tên**.
-- Đại diện nhóm nộp **link repo** lên LMS. **Hạn nộp: 23:59 ngày 04/06/2026.**
-- Mỗi thành viên cần **ít nhất một commit thực chất** trong repo (không commit = mất điểm cá nhân).
+Mỗi học viên nộp **một repo cá nhân**:
 
-### Cấu trúc repo nhóm
-
-```
-Day06-Lop-NhomXX/
-├── README.md        ← Danh sách thành viên (mã HV + họ tên) + mô tả ngắn sản phẩm
-├── spec/            ← SPEC sản phẩm (xem hướng dẫn trong spec/)
-└── codebase/        ← Toàn bộ code prototype (xem hướng dẫn trong codebase/)
+```text
+Day06-MãHọcViên-HọVàTên
+├── 01-invidual-workshop/
+└── 02-group-spec/
 ```
 
----
+Trong đó:
 
-## Lịch ngày 06 — 04/06/2026
+- `01-invidual-workshop/`: phần reflection cá nhân, nêu rõ vai trò, việc đã làm, phần AI hỗ trợ, và bài học sau demo.
+- `02-group-spec/`: bản làm chung của nhóm. Mỗi học viên copy bản cuối vào repo cá nhân của mình.
 
-| Giờ | Mốc | Cần đạt |
-|-----|-----|---------|
-| Sáng | Build | Bắt đầu từ SPEC nhẹ đã làm ở Day 5 |
-| **11:00** | Checkpoint 1 | **Show được ít nhất mockup/prototype chạy được** |
-| **13:00** | Checkpoint 2 | **Lắp được AI vào ít nhất 1 flow** |
-| **15:30** | Checkpoint 3 | **Chuẩn bị xong tài liệu demo + slide** |
-| **16:00** | Demo round | Trình bày trong zone, 10 phút/nhóm |
+## Đọc file nào để làm gì?
 
----
+1. Làm `01-invidual-workshop/app-teardown.md` khi lớp mổ Moni / NEO / V-AI hoặc app theo track.
+2. Dùng các template trong `02-group-spec/` để gom evidence, chốt insight/opportunity/build slice, và viết thin SPEC trước khi rời lớp.
 
-## Tracks
+## Cuối Day 05 cần có gì?
 
-Mỗi nhóm chọn một lĩnh vực, lấy một app thật trong đó để soi và cải tiến:
+| Artifact | Cần thể hiện rõ |
+|---|---|
+| Evidence pack | User/pain có bằng chứng, không tự bịa. Có self-use và ít nhất một nguồn ngoài nhóm hoặc kế hoạch lấy nguồn rõ. |
+| Opportunity statement | Bằng chứng nói gì sâu hơn về user; vì sao đây là việc đáng sửa. |
+| Build slice | Một user, một task, một AI decision, một output. Không build cả app. |
+| Auto/Aug decision | AI gợi ý hay tự làm? Human giữ quyền ở đâu? |
+| Four paths | Happy, low-confidence, failure, correction. |
+| Failure mode | Một lỗi nguy hiểm nhất và cách prototype xử lý. |
+| Owner plan | Ai phụ trách research, SPEC, prototype, test, demo, repo. |
 
-| Track | App thật gợi ý |
-|-------|----------------|
-| **Learning OS** (Vin AI Thực Chiến) | LMS khóa học, Discord lớp |
-| **Travel & Hospitality** | Vinpearl, Sun World / SunGroup |
-| **Food & Local Delivery** | ShopeeFood, GrabFood, BeFood, Xanh SM Ngon |
-| **Personal Finance** | MoMo, ZaloPay, app ngân hàng |
-| **Healthcare** | Vinmec, Long Châu, Pharmacity |
+## Flow cuối Day 05
 
-> Các nhóm **cùng track** ngồi **cùng một zone** khi demo.
+```text
+16:00  Chọn track/app
+16:15  Self-use + tìm evidence nhanh
+16:45  Gom evidence -> insight
+17:00  Chốt build slice + owner plan
+Tối    Hoàn thiện evidence pack + thin SPEC draft
+```
 
----
+## Điều quan trọng nhất
 
-## Kỳ vọng mỗi demo
+- Track chỉ là **miền app thật**, không phải scope.
+- Nhóm không được nộp ý tưởng kiểu "AI assistant cho healthcare" hoặc "chatbot cho travel".
+- Một build slice tốt có dạng:
 
-1. **Product Canvas** — giới thiệu ý tưởng và nỗi đau (painpoint) của người dùng.
-2. **Demo full luồng end-to-end** — show cả happy case lẫn error case.
-3. **AI chạy thật trong ít nhất 1 flow** — không chỉ mockup tĩnh.
+```text
+Cho [user cụ thể] đang [task/workflow],
+prototype dùng AI để [augment/automate hành động hẹp],
+tạo ra [output],
+và xử lý [failure mode] bằng [mitigation].
+```
 
----
+Ví dụ:
 
-## Demo round (16:00)
-
-- Mỗi nhóm **10 phút** (≈ 5 phút trình bày + 5 phút Q&A).
-- Các nhóm khác **phản biện, đặt câu hỏi**.
-- **Đánh giá chéo qua form**: thành viên các nhóm khác chấm điểm.
-- **Tổng kết**: nhóm điểm cao nhất mỗi zone được **bonus**; còn thời gian thì các nhóm điểm cao **present trước cả lớp**; giảng viên đánh giá.
-
-Chi tiết luật chơi + cách chấm: [`hackathon-rules.md`](hackathon-rules.md)
-
----
-
-## Chấm điểm (Day 5 + Day 6 = 100 điểm)
-
-| Hạng mục | Điểm |
-|----------|------|
-| SPEC | 25 |
-| Prototype | 15 |
-| Demo Day | 25 |
-| Bài tập UX (Day 5) | 10 |
-| Phản ánh cá nhân (reflection) | 25 |
-
-**Điều kiện chặn:** prototype không có lời gọi AI thật → giới hạn 4/10 · không có commit → mất điểm cá nhân · không giải thích được phần mình khi bị hỏi → 0 điểm demo cá nhân.
+```text
+Cho bệnh nhân lần đầu không biết chọn chuyên khoa,
+prototype dùng AI để hỏi 3 câu và gợi ý 2-3 chuyên khoa phù hợp,
+đồng thời chuyển sang hướng dẫn khẩn cấp/người thật nếu có red flag.
+```
 
 ---
 
-## Tài liệu trong repo này
-
-| Folder / file | Nội dung |
-|---------------|----------|
-| [`hackathon-rules.md`](hackathon-rules.md) | Luật chơi, lịch, demo round, cách chấm |
-| [`spec/`](spec/) | Hướng dẫn viết SPEC sản phẩm (nối tiếp SPEC nhẹ Day 5) |
-| [`codebase/`](codebase/) | Yêu cầu nộp code prototype |
-
----
-
-*Batch 02 · Ngày 06 — VinUni A20 · AI Thực Chiến · 2026*
+*Day 05 Lab — Batch 02 · AI Product Kickoff Sprint*

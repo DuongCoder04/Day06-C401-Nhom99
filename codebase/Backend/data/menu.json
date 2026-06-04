@@ -1,0 +1,137 @@
+[
+  {
+    "id": "dish_01",
+    "name": "Phở bò tái",
+    "price": 65000,
+    "category": "noodle",
+    "tags": ["beef", "noodle", "popular"],
+    "restaurant": "Phở Hà Nội",
+    "image_url": "/images/pho.jpg"
+  },
+  {
+    "id": "dish_02",
+    "name": "Cơm gà xối mỡ",
+    "price": 59000,
+    "category": "rice",
+    "tags": ["chicken", "rice", "popular"],
+    "restaurant": "Cơm Ngon",
+    "image_url": "/images/com-ga.jpg"
+  },
+  {
+    "id": "dish_03",
+    "name": "Bún bò Huế",
+    "price": 70000,
+    "category": "noodle",
+    "tags": ["beef", "spicy", "noodle"],
+    "restaurant": "Bún Bò Cô Liên",
+    "image_url": "/images/bun-bo.jpg"
+  },
+  {
+    "id": "dish_04",
+    "name": "Salad cá ngừ",
+    "price": 55000,
+    "category": "salad",
+    "tags": ["healthy", "low_cal", "fish"],
+    "restaurant": "Healthy Bowl",
+    "image_url": "/images/salad.jpg"
+  },
+  {
+    "id": "dish_05",
+    "name": "Ức gà áp chảo rau",
+    "price": 70000,
+    "category": "protein",
+    "tags": ["high_protein", "healthy", "chicken"],
+    "restaurant": "Fit Kitchen",
+    "image_url": "/images/chicken.jpg"
+  },
+  {
+    "id": "dish_06",
+    "name": "Phở gà không nước béo",
+    "price": 65000,
+    "category": "noodle",
+    "tags": ["chicken", "low_cal", "noodle"],
+    "restaurant": "Phở Hà Nội",
+    "image_url": "/images/pho-ga.jpg"
+  },
+  {
+    "id": "dish_07",
+    "name": "Cơm tấm sườn bì chả",
+    "price": 75000,
+    "category": "rice",
+    "tags": ["pork", "rice", "popular"],
+    "restaurant": "Cơm Tấm 68",
+    "image_url": "/images/com-tam.jpg"
+  },
+  {
+    "id": "dish_08",
+    "name": "Bánh mì trứng ốp la",
+    "price": 30000,
+    "category": "snack",
+    "tags": ["breakfast", "cheap", "egg"],
+    "restaurant": "Bánh Mì Cô Ba",
+    "image_url": "/images/banh-mi.jpg"
+  },
+  {
+    "id": "dish_09",
+    "name": "Bún chả Hà Nội",
+    "price": 69000,
+    "category": "noodle",
+    "tags": ["pork", "noodle", "popular"],
+    "restaurant": "Bún Chả Hương",
+    "image_url": "/images/bun-cha.jpg"
+  },
+  {
+    "id": "dish_10",
+    "name": "Cơm chay nấm",
+    "price": 52000,
+    "category": "rice",
+    "tags": ["vegetarian", "healthy", "mushroom"],
+    "restaurant": "Thiện Tâm",
+    "image_url": "/images/com-chay.jpg"
+  },
+  {
+    "id": "dish_11",
+    "name": "Mì Ý bò bằm",
+    "price": 80000,
+    "category": "pasta",
+    "tags": ["beef", "western", "popular"],
+    "restaurant": "Pasta House",
+    "image_url": "/images/pasta.jpg"
+  },
+  {
+    "id": "dish_12",
+    "name": "Gỏi cuốn tôm thịt",
+    "price": 45000,
+    "category": "snack",
+    "tags": ["shrimp", "light", "healthy"],
+    "restaurant": "Fresh Roll",
+    "image_url": "/images/goi-cuon.jpg"
+  },
+  {
+    "id": "dish_13",
+    "name": "Bò lúc lắc cơm nóng",
+    "price": 85000,
+    "category": "rice",
+    "tags": ["beef", "rice", "popular"],
+    "restaurant": "Quán Bò Ngon",
+    "image_url": "/images/bo-luc-lac.jpg"
+  },
+  {
+    "id": "dish_14",
+    "name": "Cháo gà hành gừng",
+    "price": 50000,
+    "category": "porridge",
+    "tags": ["chicken", "warm", "light"],
+    "restaurant": "Cháo 247",
+    "image_url": "/images/chao-ga.jpg"
+  },
+  {
+    "id": "dish_15",
+    "name": "Sữa chua trái cây",
+    "price": 25000,
+    "category": "dessert",
+    "tags": ["dessert", "healthy", "light"],
+    "restaurant": "Sweet Corner",
+    "image_url": "/images/yogurt.jpg"
+  }
+]
