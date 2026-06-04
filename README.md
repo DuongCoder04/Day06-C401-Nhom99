@@ -55,6 +55,38 @@ Trong đó:
 Tối    Hoàn thiện evidence pack + thin SPEC draft
 ```
 
+## Cách chạy prototype
+
+### 1) Backend
+
+```bash
+cd codebase/Backend
+source .venv313/bin/activate
+uvicorn main:app --reload
+```
+
+Backend sẽ chạy ở `http://127.0.0.1:8000`.
+
+Các endpoint chính:
+- `GET /health`
+- `GET /api/menu`
+- `POST /api/chat`
+- `GET /api/cart/{session_id}`
+
+### 2) Frontend
+
+```bash
+cd codebase/Frontend
+npm install
+npm run dev
+```
+
+Frontend thường chạy ở `http://127.0.0.1:5173`.
+
+Lưu ý:
+- Frontend đang gọi API tại `http://127.0.0.1:8000/api`
+- Nếu đổi port backend hoặc frontend, cần cập nhật CORS / `VITE_API_BASE_URL`
+
 ## Điều quan trọng nhất
 
 - Track chỉ là **miền app thật**, không phải scope.

@@ -2,6 +2,10 @@
 
 Đây là nơi nhóm nộp toàn bộ phần code của prototype. Mục tiêu là để giảng viên và các nhóm khác nhìn được sản phẩm chạy như thế nào, và mỗi thành viên đã đóng góp ra sao.
 
+Prototype hiện gồm:
+- `Backend/` — FastAPI backend
+- `Frontend/` — frontend Yumi demo
+
 ## Nhóm cần làm
 
 - Đưa mã nguồn của prototype vào folder này. Nếu prototype được deploy hoặc host ở nơi khác, hãy để lại đường link kèm hướng dẫn truy cập.

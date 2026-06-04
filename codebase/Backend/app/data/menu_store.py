@@ -1,7 +1,7 @@
 import json
 from functools import lru_cache
 
-from app.db.sqlite_store import get_dish_rows, get_restaurant_rows, init_db
+from app.db.sqlite_store import get_dish_rows, get_restaurant_rows
 from app.models.schemas import Dish
 
 
@@ -24,19 +24,15 @@ def _row_to_dish(row) -> Dish:
     )
 
 
+# Cache an immutable tuple to prevent callers from accidentally mutating the shared object
 @lru_cache
-def load_menu() -> list[Dish]:
-    init_db()
-    return [_row_to_dish(row) for row in get_dish_rows()]
+def _load_menu_cached() -> tuple[Dish, ...]:
+    return tuple(_row_to_dish(row) for row in get_dish_rows())
 
 
-def get_dish(dish_id: str) -> Dish | None:
-    return next((dish for dish in load_menu() if dish.id == dish_id), None)
-
-
+# Cache an immutable dict snapshot of restaurants
 @lru_cache
-def load_restaurants() -> dict[str, dict]:
-    init_db()
+def _load_restaurants_cached() -> dict[str, dict]:
     return {
         row["name"]: {
             "name": row["name"],
@@ -50,6 +46,26 @@ def load_restaurants() -> dict[str, dict]:
     }
 
 
-def get_restaurant(name: str) -> dict | None:
-    return load_restaurants().get(name)
+def load_menu() -> list[Dish]:
+    """Return a fresh list backed by the immutable cached tuple."""
+    return list(_load_menu_cached())
 
+
+def load_restaurants() -> dict[str, dict]:
+    """Return the cached restaurants dict (read-only usage expected)."""
+    return _load_restaurants_cached()
+
+
+def get_dish(dish_id: str) -> Dish | None:
+    return next((dish for dish in _load_menu_cached() if dish.id == dish_id), None)
+
+
+def get_restaurant(name: str) -> dict | None:
+    return _load_restaurants_cached().get(name)
+
+
+def invalidate_menu_cache() -> None:
+    """Clear the in-memory cache so the next call reloads from DB.
+    Call this after updating dish/restaurant data at runtime."""
+    _load_menu_cached.cache_clear()
+    _load_restaurants_cached.cache_clear()

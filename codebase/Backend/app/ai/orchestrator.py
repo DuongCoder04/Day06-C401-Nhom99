@@ -1,132 +1,321 @@
+"""
+Yumi Agent Orchestrator — ReAct-style loop.
+
+Flow per request:
+  1. classify() — fast rule-based intent detection
+  2. collect_context() — run tools in parallel where possible:
+       • always: get current weather (if API key available)
+       • by intent: search_menu / search_web / check_availability / etc.
+  3. generate_reply() — LLM reads tool results and writes a natural reply
+  4. fallback to template reply if LLM unavailable
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+from typing import Any
+
 from app.ai.classifier import classify_intent
-from app.ai.llm_client import LLMUnavailable, decide_tool, has_llm_config
+from app.ai.external_tools import get_weather, search_web
+from app.ai.llm_client import LLMUnavailable, decide_tool, generate_reply, has_llm_config
 from app.ai.recommender import recommend
 from app.ai.text import extract_budget, normalize
 from app.ai.tools import tool_args_to_entities
 from app.data.menu_store import get_restaurant, load_menu
-from app.db.sqlite_store import append_history, get_history, get_preferences, log_event, save_preference
+from app.db.sqlite_store import (
+    append_history,
+    get_history,
+    get_last_suggestion_ids,
+    get_preferences,
+    log_event,
+    save_last_suggestions,
+    save_preference,
+)
 from app.models.schemas import ChatRequest, ChatResponse, Classification, Entities, Suggestion
 from app.services.cart_service import add_to_cart, get_cart
 
 
-last_suggestions: dict[str, list[Suggestion]] = {}
-
+# ── Constants ─────────────────────────────────────────────────────────────────
 
 OUT_OF_SCOPE_REPLY = (
-    "Xin lỗi, Yumi chỉ hỗ trợ các việc liên quan đến đặt đồ ăn trong bản demo này: "
-    "gợi ý món, tìm theo ngân sách/sức khỏe/bối cảnh, kiểm tra quán, thêm món và xem giỏ hàng."
+    "Xin lỗi, Yumi chỉ hỗ trợ các việc liên quan đến đặt đồ ăn: "
+    "gợi ý món, tìm theo ngân sách/sức khỏe/thời tiết, kiểm tra quán, thêm món và xem giỏ hàng."
 )
 
+_DEFAULT_CITY = "Ho Chi Minh City"
+
+
+# ── Session helpers ───────────────────────────────────────────────────────────
+
+def _get_last_suggestions(session_id: str) -> list[Suggestion]:
+    dish_ids = get_last_suggestion_ids(session_id)
+    if not dish_ids:
+        return []
+    dishes_by_id = {d.id: d for d in load_menu()}
+    return [
+        Suggestion(**dish.model_dump(), reason=dish.description)
+        for dish_id in dish_ids
+        if (dish := dishes_by_id.get(dish_id))
+    ]
+
+
+def _save_last_suggestions(session_id: str, suggestions: list[Suggestion]) -> None:
+    save_last_suggestions(session_id, [s.id for s in suggestions])
+
+
+def _remember(session_id: str, role: str, content: str) -> None:
+    append_history(session_id, role, content)
+
+
+def _finalize(session_id: str, response: ChatResponse) -> ChatResponse:
+    _remember(session_id, "assistant", response.reply)
+    log_event(session_id, "chat_response", {
+        "intent": response.intent,
+        "action": response.action,
+        "suggestion_count": len(response.suggestions),
+    })
+    return response
+
+
+# ── Scope check ───────────────────────────────────────────────────────────────
 
 def _is_in_scope(message: str) -> bool:
     text = normalize(message)
-    greeting_keywords = ["xin chao", "chao", "hello", "hi", "hey", "yumi", "ban la ai"]
-    if any(keyword in text for keyword in greeting_keywords):
+    greetings = ["xin chao", "chao", "hello", "hi", "hey", "yumi", "ban la ai"]
+    if any(k in text for k in greetings):
         return True
 
-    explicit_out_of_scope = [
-        "viet tho",
-        "bai tho",
-        "viet code",
-        "code game",
-        "lam bai tap",
-        "giai toan",
-        "dich van ban",
-        "tom tat",
-        "ke chuyen",
-        "tu van dau tu",
-        "gia vang",
-        "bitcoin",
-        "co phieu",
-        "thoi tiet hom nay",
-        "lich bong da",
-        "dat ve may bay",
-        "khach san",
+    out_of_scope = [
+        "viet tho", "bai tho", "viet code", "code game", "lam bai tap",
+        "giai toan", "dich van ban", "tom tat", "ke chuyen", "tu van dau tu",
+        "gia vang", "bitcoin", "co phieu", "thoi tiet hom nay", "lich bong da",
+        "dat ve may bay", "khach san",
     ]
-    if any(keyword in text for keyword in explicit_out_of_scope):
+    if any(k in text for k in out_of_scope):
         return False
 
     food_signals = [
-        "an",
-        "uong",
-        "doi",
-        "bung",
-        "no",
-        "nhe",
-        "mon",
-        "do an",
-        "do uong",
-        "com",
-        "pho",
-        "bun",
-        "banh",
-        "salad",
-        "ga",
-        "bo",
-        "lau",
-        "pizza",
-        "sushi",
-        "ramen",
-        "tra sua",
-        "sinh to",
-        "chao ga",
-        "goi cuon",
-        "combo",
-        "set an",
-        "nhom",
-        "nguoi",
-        "healthy",
-        "giam can",
-        "protein",
-        "chay",
-        "mon chay",
-        "khong cay",
-        "di ung",
-        "hai san",
+        "an", "uong", "doi", "bung", "no", "nhe", "mon", "do an", "do uong",
+        "com", "pho", "bun", "banh", "salad", "ga", "bo", "lau", "pizza",
+        "sushi", "ramen", "tra sua", "sinh to", "chao ga", "goi cuon", "combo",
+        "set an", "nhom", "nguoi", "healthy", "giam can", "protein", "chay",
+        "mon chay", "khong cay", "di ung", "hai san",
     ]
     ordering_signals = [
-        "goi y",
-        "chon",
-        "dat",
-        "them",
-        "lay",
-        "gio hang",
-        "gio co gi",
-        "don cua toi",
-        "ship",
-        "phi ship",
-        "giao",
-        "may phut",
-        "quan",
-        "mo",
-        "dong",
-        "duoi",
-        "ngan sach",
-        "gia",
-        "phu hop",
-        "nhanh",
-        "can gap",
+        "goi y", "chon", "dat", "them", "lay", "gio hang", "gio co gi",
+        "don cua toi", "ship", "phi ship", "giao", "may phut", "quan", "mo",
+        "dong", "duoi", "ngan sach", "gia", "phu hop", "nhanh", "can gap",
     ]
-    memory_signals = ["nho la", "nho rang", "ban nho gi", "nho gi ve toi", "toi thich", "khong thich", "so thich"]
+    memory_signals = ["nho la", "nho rang", "ban nho gi", "nho gi ve toi", "toi thich", "so thich"]
 
-    has_food_signal = any(keyword in text for keyword in food_signals)
-    has_ordering_signal = any(keyword in text for keyword in ordering_signals)
-    has_memory_signal = any(keyword in text for keyword in memory_signals)
+    return (
+        any(k in text for k in food_signals)
+        or any(k in text for k in ordering_signals)
+        or any(k in text for k in memory_signals)
+    )
 
-    return has_food_signal or has_ordering_signal or has_memory_signal
 
+# ── Intent classification ─────────────────────────────────────────────────────
+
+def _classify(request: ChatRequest) -> tuple[Classification, str | None, dict]:
+    local = classify_intent(request.message)
+
+    # Always return immediately for high-confidence local intents
+    fast_return_intents = {
+        "SAVE_PREFERENCE", "GET_PREFERENCES", "CHECK_AVAILABILITY", "RECOMMEND_COMBO",
+        "FIND_FOOD", "BY_BUDGET", "BY_DIET", "BY_CONTEXT", "BY_GROUP",
+        "VIEW_CART", "ADD_TO_CART", "CHITCHAT",
+    }
+    if local.intent in fast_return_intents and local.confidence >= 0.9:
+        return local, None, {}
+
+    if not has_llm_config():
+        return local, None, {}
+
+    try:
+        decision = decide_tool(request.message, get_history(request.session_id))
+        classification = _classification_from_tool(decision.name, decision.arguments)
+        clarification_q = decision.arguments.get("question") if decision.name == "clarify" else None
+        return classification, clarification_q, decision.arguments
+    except LLMUnavailable:
+        return local, None, {}
+
+
+def _classification_from_tool(name: str, args: dict) -> Classification:
+    entities = tool_args_to_entities(args)
+    entities.meal_time = args.get("meal_time") or entities.meal_time
+    entities.preference_hint = args.get("preference_hint") or entities.preference_hint
+
+    intent_map = {
+        "add_to_cart": "ADD_TO_CART",
+        "view_cart": "VIEW_CART",
+        "save_user_preference": "SAVE_PREFERENCE",
+        "get_user_preferences": "GET_PREFERENCES",
+        "check_availability": "CHECK_AVAILABILITY",
+        "recommend_combo": "RECOMMEND_COMBO",
+        "get_weather": "BY_CONTEXT",
+        "search_web": "FIND_FOOD",
+        "clarify": "FIND_FOOD",
+    }
+    if name in intent_map:
+        confidence = 0.65 if name == "clarify" else 0.95
+        return Classification(intent=intent_map[name], confidence=confidence, entities=entities)
+
+    if name == "search_menu":
+        if entities.budget_max:
+            intent = "BY_BUDGET"
+        elif entities.diet_type or entities.preference_hint:
+            intent = "BY_DIET"
+        elif entities.group_size:
+            intent = "BY_GROUP"
+        elif entities.weather or entities.meal_time:
+            intent = "BY_CONTEXT"
+        else:
+            intent = "FIND_FOOD"
+        return Classification(intent=intent, confidence=0.95, entities=entities)
+
+    return Classification(intent="UNKNOWN", confidence=0.3, entities=Entities())
+
+
+# ── Context collection (tools execution) ─────────────────────────────────────
+
+def _collect_context(
+    request: ChatRequest,
+    intent: str,
+    entities: Entities,
+    tool_args: dict,
+) -> dict[str, Any]:
+    """
+    Run all relevant tools and collect results into a single context dict.
+    Uses ThreadPoolExecutor to run weather + menu search in parallel.
+    """
+    ctx: dict[str, Any] = {
+        "intent": intent,
+        "user_message": request.message,
+        "suggestions": [],
+        "weather": {"available": False},
+        "web_search": {"available": False},
+        "cart": get_cart(request.session_id).model_dump(),
+    }
+
+    # Determine if we need weather data
+    needs_weather = intent in {"BY_CONTEXT", "FIND_FOOD"} or any(
+        token in normalize(request.message)
+        for token in ["troi", "mua", "nong", "lanh", "thoi tiet"]
+    )
+
+    # Determine if we need web search
+    text_norm = normalize(request.message)
+    needs_web = any(
+        token in text_norm
+        for token in ["review", "ngon nhat", "dau ngon", "danh gia", "noi tieng", "noi nao ngon"]
+    ) or intent == "FIND_FOOD" and "ngon" in text_norm
+
+    def _fetch_weather() -> dict:
+        city = tool_args.get("city", _DEFAULT_CITY)
+        return get_weather(city)
+
+    def _fetch_web() -> dict:
+        query = tool_args.get("query") or f"{request.message} đồ ăn"
+        return search_web(query)
+
+    def _fetch_suggestions() -> list[Suggestion]:
+        # Inject real weather into entities if available
+        weather_result = ctx.get("weather", {})
+        if weather_result.get("available") and not entities.weather:
+            entities.weather = weather_result.get("condition")
+        if intent in {"FIND_FOOD", "BY_BUDGET", "BY_DIET", "BY_CONTEXT", "BY_GROUP", "RECOMMEND_COMBO"}:
+            return recommend(entities)
+        return []
+
+    # Run weather and web search concurrently if needed
+    futures: dict[str, concurrent.futures.Future] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        if needs_weather:
+            futures["weather"] = pool.submit(_fetch_weather)
+        if needs_web:
+            futures["web"] = pool.submit(_fetch_web)
+
+        # Collect weather first (needed for suggestions scoring)
+        if "weather" in futures:
+            try:
+                ctx["weather"] = futures["weather"].result(timeout=6)
+                # Inject real weather condition into entities for recommender
+                if ctx["weather"].get("available") and not entities.weather:
+                    entities.weather = ctx["weather"].get("condition")
+            except Exception:
+                ctx["weather"] = {"available": False}
+
+        # Now fetch suggestions (uses weather if available)
+        suggestions_future = pool.submit(_fetch_suggestions)
+        try:
+            ctx["suggestions"] = [s.model_dump() for s in suggestions_future.result(timeout=5)]
+        except Exception:
+            ctx["suggestions"] = []
+
+        # Web search result
+        if "web" in futures:
+            try:
+                ctx["web_search"] = futures["web"].result(timeout=8)
+            except Exception:
+                ctx["web_search"] = {"available": False}
+
+    return ctx
+
+
+# ── Reply generation ──────────────────────────────────────────────────────────
+
+def _try_llm_reply(
+    user_message: str,
+    ctx: dict[str, Any],
+    history: list[dict[str, str]],
+) -> str | None:
+    """Attempt LLM-generated reply. Returns None if unavailable."""
+    if not has_llm_config():
+        return None
+    try:
+        return generate_reply(user_message, ctx, history)
+    except LLMUnavailable:
+        return None
+
+
+def _fallback_reply(intent: str, ctx: dict[str, Any]) -> str:
+    """Template fallback when LLM is unavailable."""
+    suggestions = ctx.get("suggestions", [])
+    top = suggestions[0] if suggestions else None
+    weather = ctx.get("weather", {})
+
+    if weather.get("available"):
+        weather_note = f" ({weather['summary']})"
+    else:
+        weather_note = ""
+
+    if not top:
+        return "Yumi chưa tìm được món phù hợp. Bạn thử nói rõ hơn ngân sách hoặc khẩu vị nhé."
+
+    if intent == "BY_BUDGET":
+        budget = ctx.get("intent_data", {}).get("budget_max")
+        budget_str = f"{budget:,}đ" if budget else "ngân sách của bạn"
+        return f"Trong {budget_str}, {top['name']} ({top['price']:,}đ) là lựa chọn ổn nhất{weather_note}."
+
+    if intent == "BY_CONTEXT" and weather.get("available"):
+        return f"{weather['summary']} Yumi gợi {top['name']} từ {top['restaurant']} — hợp thời tiết hôm nay."
+
+    return f"Yumi gợi {top['name']} từ {top['restaurant']}{weather_note} — cùng 2 lựa chọn khác bên dưới."
+
+
+# ── Cart helpers ──────────────────────────────────────────────────────────────
 
 def _cart_reply(session_id: str) -> str:
     cart = get_cart(session_id)
     if not cart.items:
         return "Giỏ hàng của bạn đang trống. Bạn muốn Yumi gợi ý món nào không?"
-
-    lines = [f"- {item.name} x{item.quantity} - {item.price * item.quantity:,}đ" for item in cart.items]
+    lines = [f"- {i.name} x{i.quantity} — {i.price * i.quantity:,}đ" for i in cart.items]
     return "Giỏ hàng của bạn:\n" + "\n".join(lines) + f"\nTổng: {cart.total:,}đ"
 
 
 def _resolve_dish(session_id: str, message: str, dish_ref: str | None) -> Suggestion | None:
-    suggestions = last_suggestions.get(session_id, [])
+    suggestions = _get_last_suggestions(session_id)
     ref_map = {"first": 0, "second": 1, "third": 2}
 
     if dish_ref in ref_map and len(suggestions) > ref_map[dish_ref]:
@@ -136,160 +325,16 @@ def _resolve_dish(session_id: str, message: str, dish_ref: str | None) -> Sugges
     for dish in suggestions:
         if normalize(dish.name) in message_norm:
             return dish
-
     for dish in load_menu():
         if normalize(dish.name) in message_norm:
             return Suggestion(**dish.model_dump(), reason=dish.description)
-
     return None
-
-
-def _suggestion_reply(intent: str, suggestions: list[Suggestion], budget: int | None, group_size: int | None) -> str:
-    if not suggestions:
-        return "Yumi chưa tìm thấy món phù hợp trong menu mẫu. Bạn muốn đổi tiêu chí không?"
-    if intent == "BY_BUDGET" and budget:
-        return f"Có {len(suggestions)} món trong ngân sách {budget:,}đ. Yumi chọn các món dễ quyết định nhất cho bạn."
-    if intent == "BY_DIET":
-        return f"Yumi tìm được {len(suggestions)} món hợp mục tiêu ăn uống của bạn."
-    if intent == "BY_GROUP" and group_size:
-        return f"Cho nhóm {group_size} người, Yumi ưu tiên món dễ chia sẻ."
-    if intent == "BY_CONTEXT":
-        return "Dựa trên bối cảnh bạn nói, Yumi gợi ý các món này."
-    return "Yumi gợi ý 3 món dễ chọn nhất lúc này."
-
-
-def _discovery_reply(message: str, intent: str, suggestions: list[Suggestion], budget: int | None, group_size: int | None) -> str:
-    text = normalize(message)
-    if intent == "FIND_FOOD" and any(token in text for token in ["doi", "doi bung", "an no", "no bung"]):
-        return "Bạn đang đói rồi thì Yumi ưu tiên món no bụng, quán đang mở và giao nhanh nhất cho bạn."
-    if intent == "FIND_FOOD" and any(token in text for token in ["chua biet an", "khong biet an", "chon gi"]):
-        return "Bạn chưa biết chọn gì thì Yumi rút gọn còn 3 món dễ quyết định nhất, ưu tiên quán đang mở và món phổ biến."
-    if intent == "FIND_FOOD" and any(token in text for token in ["gi cung duoc", "sao cung duoc"]):
-        return "Nếu bạn ăn gì cũng được, Yumi sẽ chọn các món an toàn: dễ ăn, giao nhanh và giá hợp lý."
-    if intent == "FIND_FOOD":
-        return "Yumi chọn nhanh 3 món đáng cân nhắc nhất từ menu thật, có tính cả quán đang mở và tốc độ giao."
-    if intent == "BY_BUDGET" and budget:
-        return f"Với ngân sách khoảng {budget:,}đ, Yumi lọc các món vừa túi tiền nhưng vẫn đủ no và dễ đặt."
-    if intent == "BY_DIET" and any(token in text for token in ["giam can", "healthy", "eat clean", "nhe bung", "an nhe"]):
-        return "Bạn muốn ăn nhẹ/lành mạnh, nên Yumi ưu tiên món ít nặng bụng và có tag healthy trong menu."
-    if intent == "BY_DIET":
-        return "Yumi lọc các món phù hợp mục tiêu ăn uống của bạn và tránh gợi ý quá rộng."
-    if intent == "BY_CONTEXT" and any(token in text for token in ["mua", "lanh"]):
-        return "Trời mưa/lạnh thì Yumi ưu tiên món nóng, comfort food và quán còn mở."
-    if intent == "BY_CONTEXT" and any(token in text for token in ["giao nhanh", "ship nhanh", "co lien", "can gap"]):
-        return "Bạn cần nhanh, nên Yumi ưu tiên quán đang mở và thời gian giao ngắn."
-    if intent == "BY_CONTEXT" and any(token in text for token in ["khuya", "dem roi"]):
-        return "Ăn khuya thì Yumi ưu tiên món ấm bụng, dễ ăn và không quá nặng."
-    if intent == "BY_GROUP" and group_size:
-        return f"Cho nhóm {group_size} người, Yumi ưu tiên món dễ chia sẻ hoặc combo để đặt nhanh hơn."
-    return _suggestion_reply(intent, suggestions, budget, group_size)
-
-
-def _classification_from_tool(name: str, args: dict) -> Classification:
-    entities = tool_args_to_entities(args)
-    if name == "search_menu":
-        if entities.budget_max:
-            intent = "BY_BUDGET"
-        elif entities.diet_type:
-            intent = "BY_DIET"
-        elif entities.group_size:
-            intent = "BY_GROUP"
-        elif entities.weather:
-            intent = "BY_CONTEXT"
-        else:
-            intent = "FIND_FOOD"
-        return Classification(intent=intent, confidence=0.95, entities=entities)
-    if name == "add_to_cart":
-        return Classification(intent="ADD_TO_CART", confidence=0.95, entities=entities)
-    if name == "view_cart":
-        return Classification(intent="VIEW_CART", confidence=0.95, entities=entities)
-    if name == "clarify":
-        return Classification(intent="FIND_FOOD", confidence=0.65, entities=entities)
-    if name == "save_user_preference":
-        return Classification(intent="SAVE_PREFERENCE", confidence=0.95, entities=entities)
-    if name == "get_user_preferences":
-        return Classification(intent="GET_PREFERENCES", confidence=0.95, entities=entities)
-    if name == "check_availability":
-        return Classification(intent="CHECK_AVAILABILITY", confidence=0.95, entities=entities)
-    if name == "recommend_combo":
-        return Classification(intent="RECOMMEND_COMBO", confidence=0.95, entities=entities)
-    return Classification(intent="UNKNOWN", confidence=0.3, entities=Entities())
-
-
-def _classify(request: ChatRequest) -> tuple[Classification, str | None, dict]:
-    local_classification = classify_intent(request.message)
-    if local_classification.intent in {
-        "SAVE_PREFERENCE",
-        "GET_PREFERENCES",
-        "CHECK_AVAILABILITY",
-        "RECOMMEND_COMBO",
-    }:
-        return local_classification, None, {}
-    if local_classification.intent in {
-        "FIND_FOOD",
-        "BY_BUDGET",
-        "BY_DIET",
-        "BY_CONTEXT",
-        "BY_GROUP",
-        "VIEW_CART",
-        "ADD_TO_CART",
-        "CHITCHAT",
-    } and local_classification.confidence >= 0.9:
-        return local_classification, None, {}
-
-    if not has_llm_config():
-        return local_classification, None, {}
-
-    try:
-        decision = decide_tool(request.message, get_history(request.session_id))
-        classification = _classification_from_tool(decision.name, decision.arguments)
-        clarification_question = decision.arguments.get("question") if decision.name == "clarify" else None
-        return classification, clarification_question, decision.arguments
-    except LLMUnavailable:
-        return local_classification, None, {}
-
-
-def _remember(session_id: str, role: str, content: str) -> None:
-    append_history(session_id, role, content)
-
-
-def _finalize(session_id: str, response: ChatResponse) -> ChatResponse:
-    _remember(session_id, "assistant", response.reply)
-    log_event(
-        session_id,
-        "chat_response",
-        {"intent": response.intent, "action": response.action, "suggestion_count": len(response.suggestions)},
-    )
-    return response
-
-
-def _extract_preference(message: str, tool_args: dict) -> tuple[str, str]:
-    key = tool_args.get("preference_key")
-    value = tool_args.get("preference_value")
-    if key and value:
-        return str(key), str(value)
-
-    text = normalize(message)
-    budget = extract_budget(message)
-    if budget:
-        return "budget", str(budget)
-    if "khong cay" in text:
-        return "spice", "không cay"
-    if "giam can" in text or "healthy" in text:
-        return "diet", "low_cal"
-    if "nhat" in text:
-        return "cuisine", "japanese"
-    if "han" in text:
-        return "cuisine", "korean"
-    if "chay" in text:
-        return "diet", "vegetarian"
-    return "favorite", message.strip()
 
 
 def _availability_reply(query: str) -> str:
     query_norm = normalize(query)
-    matched_dish = next((dish for dish in load_menu() if normalize(dish.name) in query_norm), None)
-    restaurant_name = matched_dish.restaurant if matched_dish else None
+    matched = next((d for d in load_menu() if normalize(d.name) in query_norm), None)
+    restaurant_name = matched.restaurant if matched else None
 
     if not restaurant_name:
         for dish in load_menu():
@@ -302,7 +347,7 @@ def _availability_reply(query: str) -> str:
 
     restaurant = get_restaurant(restaurant_name)
     if not restaurant:
-        return f"Mình có món thuộc {restaurant_name}, nhưng chưa có dữ liệu giao hàng của quán này."
+        return f"Mình có món thuộc {restaurant_name}, nhưng chưa có dữ liệu giao hàng."
 
     status = "đang mở" if restaurant["is_open"] else "đang đóng"
     return (
@@ -314,12 +359,11 @@ def _availability_reply(query: str) -> str:
 
 def _combo_suggestions(budget_max: int | None, group_size: int | None) -> list[Suggestion]:
     dishes = load_menu()
-    mains = [dish for dish in dishes if dish.category not in {"drink", "snack"}]
-    sides = [dish for dish in dishes if dish.category in {"drink", "snack"} or dish.shareable]
+    mains = [d for d in dishes if d.category not in {"drink", "snack"}]
+    sides = [d for d in dishes if d.category in {"drink", "snack"} or d.shareable]
     combos: list[Suggestion] = []
-
-    for main in sorted(mains, key=lambda item: item.popularity, reverse=True):
-        side = next((item for item in sides if item.id != main.id), None)
+    for main in sorted(mains, key=lambda d: d.popularity, reverse=True):
+        side = next((s for s in sides if s.id != main.id), None)
         if not side:
             continue
         total = main.price + side.price
@@ -329,171 +373,200 @@ def _combo_suggestions(budget_max: int | None, group_size: int | None) -> list[S
         if group_size and group_size >= 3:
             reason += f", phù hợp nhóm {group_size} người"
         restaurant = get_restaurant(main.restaurant) or {}
-        combos.append(
-            Suggestion(
-                **main.model_dump(),
-                reason=reason,
-                rating=restaurant.get("rating"),
-                is_open=restaurant.get("is_open"),
-                delivery_minutes=restaurant.get("delivery_minutes"),
-                delivery_fee=restaurant.get("delivery_fee"),
-                distance_km=restaurant.get("distance_km"),
-            )
-        )
+        combos.append(Suggestion(
+            **main.model_dump(), reason=reason,
+            rating=restaurant.get("rating"), is_open=restaurant.get("is_open"),
+            delivery_minutes=restaurant.get("delivery_minutes"),
+            delivery_fee=restaurant.get("delivery_fee"),
+            distance_km=restaurant.get("distance_km"),
+        ))
         if len(combos) == 3:
             break
-
     return combos
 
+
+def _extract_preference(message: str, tool_args: dict) -> tuple[str, str]:
+    key = tool_args.get("preference_key")
+    value = tool_args.get("preference_value")
+    if key and value:
+        return str(key), str(value)
+    text = normalize(message)
+    budget = extract_budget(message)
+    if budget:
+        return "budget", str(budget)
+    if "khong cay" in text:
+        return "spice", "không cay"
+    if "giam can" in text or "healthy" in text or "an nhe" in text:
+        return "diet", "low_cal"
+    if "protein" in text or "tap gym" in text:
+        return "diet", "high_protein"
+    if "chay" in text:
+        return "diet", "vegetarian"
+    return "favorite", message.strip()
+
+
+# ── Main orchestrate ──────────────────────────────────────────────────────────
 
 def orchestrate(request: ChatRequest) -> ChatResponse:
     _remember(request.session_id, "user", request.message)
 
+    # ── Out of scope ──────────────────────────────────────────────────────────
     if not _is_in_scope(request.message):
         response = ChatResponse(
-            reply=OUT_OF_SCOPE_REPLY,
-            intent="UNKNOWN",
-            action="out_of_scope",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
+            reply=OUT_OF_SCOPE_REPLY, intent="UNKNOWN", action="out_of_scope",
+            suggestions=[], cart_summary=get_cart(request.session_id),
         )
         return _finalize(request.session_id, response)
 
+    # ── Classify ──────────────────────────────────────────────────────────────
     classification, llm_question, tool_args = _classify(request)
     intent = classification.intent
     entities = classification.entities
+    history = get_history(request.session_id)
 
     if intent == "UNKNOWN":
         response = ChatResponse(
-            reply=OUT_OF_SCOPE_REPLY,
-            intent=intent,
-            action="out_of_scope",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
+            reply=OUT_OF_SCOPE_REPLY, intent=intent, action="out_of_scope",
+            suggestions=[], cart_summary=get_cart(request.session_id),
         )
         return _finalize(request.session_id, response)
+
+    # ── Intents that don't need recommendation ────────────────────────────────
 
     if intent == "CHITCHAT":
-        response = ChatResponse(
-            reply="Mình là Yumi, trợ lý AI giúp bạn chọn món và chuẩn bị giỏ hàng. Bạn muốn gợi ý theo ngân sách, sức khỏe hay bối cảnh hôm nay?",
-            intent=intent,
-            action="none",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
+        ctx = {"intent": "CHITCHAT", "user_message": request.message, "suggestions": [],
+               "cart": get_cart(request.session_id).model_dump()}
+        reply = _try_llm_reply(request.message, ctx, history) or (
+            "Mình là Yumi, trợ lý AI giúp bạn chọn món và chuẩn bị giỏ hàng. "
+            "Bạn muốn gợi ý theo ngân sách, sức khỏe hay thời tiết hôm nay?"
         )
-        return _finalize(request.session_id, response)
+        return _finalize(request.session_id, ChatResponse(
+            reply=reply, intent=intent, action="none",
+            suggestions=[], cart_summary=get_cart(request.session_id),
+        ))
 
     if intent == "VIEW_CART":
-        response = ChatResponse(
-            reply=_cart_reply(request.session_id),
-            intent=intent,
-            action="view_cart",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
-        )
-        return _finalize(request.session_id, response)
+        return _finalize(request.session_id, ChatResponse(
+            reply=_cart_reply(request.session_id), intent=intent, action="view_cart",
+            suggestions=[], cart_summary=get_cart(request.session_id),
+        ))
 
     if intent == "SAVE_PREFERENCE":
         key, value = _extract_preference(request.message, tool_args)
         save_preference(request.session_id, key, value)
         log_event(request.session_id, "save_preference", {"key": key, "value": value})
-        response = ChatResponse(
-            reply=f"Yumi đã nhớ: {key} = {value}. Lần sau mình sẽ dùng thông tin này để gợi ý món phù hợp hơn.",
-            intent=intent,
-            action="save_preference",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
+        ctx = {"intent": intent, "user_message": request.message, "saved": {key: value},
+               "suggestions": [], "cart": get_cart(request.session_id).model_dump()}
+        reply = _try_llm_reply(request.message, ctx, history) or (
+            f"Yumi đã nhớ: {key} = {value}. Lần sau mình sẽ dùng thông tin này để gợi ý phù hợp hơn."
         )
-        return _finalize(request.session_id, response)
+        return _finalize(request.session_id, ChatResponse(
+            reply=reply, intent=intent, action="save_preference",
+            suggestions=[], cart_summary=get_cart(request.session_id),
+        ))
 
     if intent == "GET_PREFERENCES":
         preferences = get_preferences(request.session_id)
+        ctx = {"intent": intent, "user_message": request.message, "preferences": preferences,
+               "suggestions": [], "cart": get_cart(request.session_id).model_dump()}
         if not preferences:
-            reply = "Yumi chưa lưu sở thích nào của bạn trong phiên này."
+            reply = _try_llm_reply(request.message, ctx, history) or "Yumi chưa lưu sở thích nào của bạn."
         else:
-            lines = [f"- {key}: {value}" for key, value in preferences.items()]
-            reply = "Yumi đang nhớ các sở thích này:\n" + "\n".join(lines)
-        response = ChatResponse(
-            reply=reply,
-            intent=intent,
-            action="get_preferences",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
-        )
-        return _finalize(request.session_id, response)
+            lines = [f"- {k}: {v}" for k, v in preferences.items()]
+            ctx["preferences_text"] = "\n".join(lines)
+            reply = _try_llm_reply(request.message, ctx, history) or (
+                "Yumi đang nhớ:\n" + "\n".join(lines)
+            )
+        return _finalize(request.session_id, ChatResponse(
+            reply=reply, intent=intent, action="get_preferences",
+            suggestions=[], cart_summary=get_cart(request.session_id),
+        ))
 
     if intent == "CHECK_AVAILABILITY":
         query = tool_args.get("restaurant_or_dish") or request.message
-        response = ChatResponse(
-            reply=_availability_reply(query),
-            intent=intent,
-            action="check_availability",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
-        )
-        return _finalize(request.session_id, response)
+        availability_text = _availability_reply(query)
+        ctx = {"intent": intent, "user_message": request.message,
+               "availability": availability_text, "suggestions": [],
+               "cart": get_cart(request.session_id).model_dump()}
+        reply = _try_llm_reply(request.message, ctx, history) or availability_text
+        return _finalize(request.session_id, ChatResponse(
+            reply=reply, intent=intent, action="check_availability",
+            suggestions=[], cart_summary=get_cart(request.session_id),
+        ))
 
     if intent == "RECOMMEND_COMBO":
         budget = entities.budget_max or tool_args.get("budget_max")
         group_size = entities.group_size or tool_args.get("group_size")
         suggestions = _combo_suggestions(budget, group_size)
-        last_suggestions[request.session_id] = suggestions
-        response = ChatResponse(
-            reply="Yumi gợi ý vài combo dễ đặt từ menu thật.",
-            intent=intent,
-            action="recommend_combo",
-            suggestions=suggestions,
-            cart_summary=get_cart(request.session_id),
-        )
-        return _finalize(request.session_id, response)
+        _save_last_suggestions(request.session_id, suggestions)
+        ctx = {"intent": intent, "user_message": request.message,
+               "suggestions": [s.model_dump() for s in suggestions],
+               "cart": get_cart(request.session_id).model_dump()}
+        reply = _try_llm_reply(request.message, ctx, history) or "Yumi gợi ý vài combo dễ đặt từ menu."
+        return _finalize(request.session_id, ChatResponse(
+            reply=reply, intent=intent, action="recommend_combo",
+            suggestions=suggestions, cart_summary=get_cart(request.session_id),
+        ))
 
     if intent == "ADD_TO_CART":
         dish = _resolve_dish(request.session_id, request.message, entities.dish_ref)
         if not dish:
-            response = ChatResponse(
-                reply="Bạn muốn thêm món nào? Hãy nói “thêm món đầu tiên”, “thêm món thứ hai” hoặc bấm nút Thêm trên card.",
-                intent=intent,
-                action="clarify",
-                suggestions=last_suggestions.get(request.session_id, []),
+            return _finalize(request.session_id, ChatResponse(
+                reply='Bạn muốn thêm món nào? Nói "thêm món đầu tiên", "thêm món thứ hai" hoặc bấm Thêm trên card.',
+                intent=intent, action="clarify",
+                suggestions=_get_last_suggestions(request.session_id),
                 cart_summary=get_cart(request.session_id),
                 clarification_question="Bạn muốn thêm món nào?",
-            )
-            return _finalize(request.session_id, response)
-
+            ))
         cart = add_to_cart(request.session_id, dish.id, entities.quantity)
-        log_event(
-            request.session_id,
-            "add_to_cart",
-            {"dish_id": dish.id, "name": dish.name, "quantity": entities.quantity},
+        log_event(request.session_id, "add_to_cart", {"dish_id": dish.id, "name": dish.name, "quantity": entities.quantity})
+        ctx = {"intent": intent, "user_message": request.message, "added_dish": dish.name,
+               "cart": cart.model_dump(), "suggestions": []}
+        reply = _try_llm_reply(request.message, ctx, history) or (
+            f"Đã thêm {dish.name} vào giỏ. Hiện có {cart.item_count} món, tổng {cart.total:,}đ."
         )
-        response = ChatResponse(
-            reply=f"Đã thêm {dish.name} vào giỏ. Hiện giỏ hàng có {cart.item_count} món, tổng {cart.total:,}đ.",
-            intent=intent,
-            action="add_to_cart",
-            suggestions=[],
-            cart_summary=cart,
-        )
-        return _finalize(request.session_id, response)
+        return _finalize(request.session_id, ChatResponse(
+            reply=reply, intent=intent, action="add_to_cart",
+            suggestions=[], cart_summary=cart,
+        ))
 
+    # ── Clarification needed ──────────────────────────────────────────────────
     if classification.confidence < 0.85:
         question = llm_question or "Bạn muốn ăn nhẹ hay ăn no bụng?"
-        response = ChatResponse(
-            reply=question,
-            intent=intent,
-            action="clarify",
-            suggestions=[],
-            cart_summary=get_cart(request.session_id),
+        return _finalize(request.session_id, ChatResponse(
+            reply=question, intent=intent, action="clarify",
+            suggestions=[], cart_summary=get_cart(request.session_id),
             clarification_question=question,
-        )
-        return _finalize(request.session_id, response)
+        ))
 
-    suggestions = recommend(entities)
-    last_suggestions[request.session_id] = suggestions
-    response = ChatResponse(
-        reply=_discovery_reply(request.message, intent, suggestions, entities.budget_max, entities.group_size),
-        intent=intent,
-        action="search",
-        suggestions=suggestions,
-        cart_summary=get_cart(request.session_id),
-    )
-    return _finalize(request.session_id, response)
+    # ── Main recommendation flow (FIND_FOOD / BY_* intents) ──────────────────
+    # Collect all tool results in parallel
+    ctx = _collect_context(request, intent, entities, tool_args)
+
+    # Build suggestions list from ctx
+    suggestions_data = ctx.get("suggestions", [])
+    suggestions = []
+    if suggestions_data:
+        dishes_by_id = {d.id: d for d in load_menu()}
+        for s_dict in suggestions_data:
+            dish = dishes_by_id.get(s_dict.get("id", ""))
+            if dish:
+                suggestions.append(Suggestion(
+                    **dish.model_dump(),
+                    reason=s_dict.get("reason", dish.description),
+                    rating=s_dict.get("rating"),
+                    is_open=s_dict.get("is_open"),
+                    delivery_minutes=s_dict.get("delivery_minutes"),
+                    delivery_fee=s_dict.get("delivery_fee"),
+                    distance_km=s_dict.get("distance_km"),
+                ))
+
+    _save_last_suggestions(request.session_id, suggestions)
+
+    # Generate reply: LLM first, fallback to template
+    reply = _try_llm_reply(request.message, ctx, history) or _fallback_reply(intent, ctx)
+
+    return _finalize(request.session_id, ChatResponse(
+        reply=reply, intent=intent, action="search",
+        suggestions=suggestions, cart_summary=get_cart(request.session_id),
+    ))

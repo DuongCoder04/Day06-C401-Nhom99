@@ -22,7 +22,7 @@ Yumi is the main product theme: a conversational ordering assistant for food del
 - `01-invidual-workshop/` — individual teardown/reflection artifact.
 - `02-group-spec/` — templates for the evidence pack, synthesis, and thin spec.
 - `Ca-nhan/` — personal writeups in Vietnamese.
-- `Backend/` — FastAPI prototype for menu, cart, and chat flows.
+- `codebase/Backend/` — FastAPI prototype for menu, cart, and chat flows.
 
 ## Backend architecture
 
@@ -44,7 +44,7 @@ Important behavior:
 
 ## Common commands
 
-Run these from `Backend/` unless noted otherwise.
+Run these from `codebase/Backend/` unless noted otherwise.
 
 - Install backend deps
   - `python -m pip install -r requirements.txt`

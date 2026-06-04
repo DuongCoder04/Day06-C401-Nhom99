@@ -20,6 +20,8 @@ Intent = Literal[
     "UNKNOWN",
 ]
 
+PreferenceKey = Literal["budget", "diet", "cuisine", "spice", "avoid", "favorite"]
+
 
 class Dish(BaseModel):
     id: str
@@ -54,6 +56,8 @@ class Entities(BaseModel):
     group_size: int | None = None
     dish_ref: str | None = None
     quantity: int = 1
+    meal_time: str | None = None
+    preference_hint: str | None = None
 
 
 class Classification(BaseModel):
@@ -111,5 +115,5 @@ class RemoveCartRequest(BaseModel):
 
 class SavePreferenceRequest(BaseModel):
     session_id: str
-    preference_key: str
+    preference_key: PreferenceKey
     preference_value: str

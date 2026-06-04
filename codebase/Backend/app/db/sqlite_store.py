@@ -61,6 +61,55 @@ def init_db() -> None:
         )
         _seed_dishes_if_empty(connection)
         _seed_restaurants_if_empty(connection)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                session_id TEXT NOT NULL,
+                preference_key TEXT NOT NULL,
+                preference_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (session_id, preference_key)
+            )
+            """
+        )
+        # last_suggestions: stores the most recent dish IDs shown per session
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS last_suggestions (
+                session_id TEXT NOT NULL,
+                dish_ids TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (session_id)
+            )
+            """
+        )
+        # Indexes for frequent session_id queries
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_cart_session ON cart_items(session_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_history_session ON session_history(session_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON user_events(session_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_prefs_session ON user_preferences(session_id)")
 
 
 def _seed_dishes_if_empty(connection: sqlite3.Connection) -> None:
@@ -136,39 +185,6 @@ def get_dish_rows() -> list[sqlite3.Row]:
 def get_restaurant_rows() -> list[sqlite3.Row]:
     with connect() as connection:
         return list(connection.execute("SELECT * FROM restaurants ORDER BY name"))
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS session_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                session_id TEXT NOT NULL,
-                preference_key TEXT NOT NULL,
-                preference_value TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (session_id, preference_key)
-            )
-            """
-        )
 
 
 def add_cart_quantity(session_id: str, dish_id: str, delta: int) -> None:
@@ -313,3 +329,32 @@ def get_preferences(session_id: str) -> dict[str, str]:
             )
         )
     return {row["preference_key"]: row["preference_value"] for row in rows}
+
+
+def save_last_suggestions(session_id: str, dish_ids: list[str]) -> None:
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO last_suggestions (session_id, dish_ids)
+            VALUES (?, ?)
+            ON CONFLICT(session_id)
+            DO UPDATE SET
+                dish_ids = excluded.dish_ids,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (session_id, json.dumps(dish_ids, ensure_ascii=False)),
+        )
+
+
+def get_last_suggestion_ids(session_id: str) -> list[str]:
+    with connect() as connection:
+        row = connection.execute(
+            "SELECT dish_ids FROM last_suggestions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        return json.loads(row["dish_ids"])
+    except (json.JSONDecodeError, KeyError):
+        return []

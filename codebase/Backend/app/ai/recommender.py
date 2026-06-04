@@ -17,12 +17,16 @@ def _meal_time() -> str:
     return "late_night"
 
 
+def _effective_meal_time(entities: Entities) -> str:
+    return entities.meal_time or _meal_time()
+
+
 def _score(dish: Dish, entities: Entities) -> float:
     score = dish.popularity * 40
-    meal = _meal_time()
+    meal = _effective_meal_time(entities)
 
     if meal in dish.meal_tags:
-        score += 16
+        score += 22
     if entities.budget_max and dish.price <= entities.budget_max:
         score += 35
     if entities.budget_max and dish.price > entities.budget_max:
@@ -31,6 +35,10 @@ def _score(dish: Dish, entities: Entities) -> float:
         score += 45
     if entities.diet_type and entities.diet_type not in dish.diet_tags:
         score -= 35
+    if entities.preference_hint == "hearty" and dish.category in {"rice", "noodle", "hotpot", "combo"}:
+        score += 22
+    if entities.preference_hint == "light" and dish.category in {"salad", "snack", "sandwich"}:
+        score += 22
     if entities.weather in {"rain", "cold"} and dish.is_hot:
         score += 20
     if entities.weather == "rain":
@@ -55,20 +63,34 @@ def _score(dish: Dish, entities: Entities) -> float:
 
 
 def _reason(dish: Dish, entities: Entities) -> str:
+    meal = _effective_meal_time(entities)
+
     if entities.budget_max:
-        return f"{dish.name} nằm trong ngân sách và có giá {dish.price:,}đ."
+        return f"Hợp ngân sách {entities.budget_max:,}đ và vẫn dễ chọn cho bữa này."
     if entities.diet_type == "low_cal":
-        return f"{dish.name} nhẹ bụng, hợp khi bạn muốn ăn lành mạnh."
+        return "Nhẹ bụng và hợp khi bạn muốn ăn healthy."
     if entities.diet_type == "high_protein":
-        return f"{dish.name} giàu đạm, hợp cho bữa ăn chắc bụng."
+        return "Nhiều đạm hơn, hợp khi bạn muốn ăn chắc bụng."
+    if entities.preference_hint == "hearty":
+        return "No bụng hơn, hợp khi bạn muốn một bữa chắc dạ."
+    if entities.preference_hint == "light":
+        return "Thanh nhẹ và dễ ăn hơn cho bữa này."
     if entities.group_size:
-        return f"{dish.name} phù hợp khi đặt cho nhóm {entities.group_size} người."
+        return f"Phù hợp hơn khi đặt cho nhóm {entities.group_size} người."
     if entities.weather in {"rain", "cold"}:
-        return f"{dish.name} là món nóng, hợp lúc trời mưa hoặc se lạnh."
+        return "Món nóng, hợp lúc trời mưa hoặc se lạnh."
+    if meal == "breakfast":
+        return "Hợp buổi sáng và dễ bắt đầu ngày mới."
+    if meal == "lunch":
+        return "Hợp bữa trưa vì đủ no mà không quá nặng."
+    if meal == "dinner":
+        return "Hợp bữa tối và dễ quyết định nhanh."
+    if meal == "late_night":
+        return "Dễ ăn hơn cho bữa khuya."
     restaurant = get_restaurant(dish.restaurant)
     if restaurant and restaurant["delivery_minutes"] <= 20:
-        return f"{dish.name} từ quán đang mở, giao khoảng {restaurant['delivery_minutes']} phút."
-    return f"{dish.name} phổ biến, dễ ăn và giúp bạn quyết định nhanh."
+        return f"Từ quán đang mở, giao khoảng {restaurant['delivery_minutes']} phút."
+    return "Phổ biến, dễ ăn và hợp để chốt món nhanh."
 
 
 def _to_suggestion(dish: Dish, reason: str) -> Suggestion:
