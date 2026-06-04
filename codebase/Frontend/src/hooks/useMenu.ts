@@ -14,17 +14,28 @@ const initialFilters: MenuFilters = {
   diet: '',
 }
 
+function normalizeText(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+}
+
 function applyFilters(items: MenuItem[], filters: MenuFilters): MenuItem[] {
   return items.filter((item) => {
-    const matchesQuery =
-      !filters.q ||
-      [item.name, item.restaurant, item.description, item.cuisine, item.category]
-        .join(' ')
-        .toLowerCase()
-        .includes(filters.q.toLowerCase())
+    const searchTarget = normalizeText(
+      [item.name, item.restaurant, item.description, item.cuisine, item.category].join(' ')
+    )
+    const searchQuery = normalizeText(filters.q)
+    const matchesQuery = !filters.q || searchTarget.includes(searchQuery)
 
     const matchesBudget = !filters.budget || item.price <= filters.budget
-    const matchesDiet = !filters.diet || item.diet_tags.includes(filters.diet)
+    
+    // Map 'healthy' selected in UI to 'low_cal' in database tags
+    const normalizedDiet = filters.diet === 'healthy' ? 'low_cal' : filters.diet
+    const matchesDiet = !filters.diet || item.diet_tags.includes(normalizedDiet)
 
     return matchesQuery && matchesBudget && matchesDiet
   })
@@ -65,6 +76,13 @@ export function useMenu(defaultFilters?: Partial<MenuFilters>) {
       setLoading(false)
     }
   }, []) // stable — no deps needed because we use refs
+
+  // Synchronize items whenever filters state changes (real-time filtering)
+  useEffect(() => {
+    if (allItemsRef.current.length) {
+      setItems(applyFilters(allItemsRef.current, filters))
+    }
+  }, [filters])
 
   // Initial load
   useEffect(() => {

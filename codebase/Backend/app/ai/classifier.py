@@ -36,10 +36,56 @@ def classify_intent(message: str) -> Classification:
     # Extract dish name or category keyword from the message
     dishes = load_menu()
     matched_dish = None
+    
+    # 1. Exact or full substring match
     for dish in sorted(dishes, key=lambda d: len(d.name), reverse=True):
         if normalize(dish.name) in text:
             matched_dish = dish.name
             break
+            
+    # 2. Match common food/drink keywords to database dish names
+    if not matched_dish:
+        keyword_to_dish = {
+            "nuoc cam": "Nước cam ép nguyên chất",
+            "cam ep": "Nước cam ép nguyên chất",
+            "ca phe": "Cà phê sữa đá Sài Gòn",
+            "cafe": "Cà phê sữa đá Sài Gòn",
+            "tra tac": "Trà tắc xả mật ong",
+            "sua chua": "Sữa chua nếp cẩm dẻo",
+            "banh trang": "Bánh tráng trộn bò khô",
+            "bap xao": "Bắp xào bơ tép hành",
+            "banh bao": "Bánh bao nhân xá xíu",
+            "tra sua": "Trà sữa Matcha trân châu",
+            "bun bo": "Bún bò Huế",
+            "pho bo": "Phở bò tái",
+            "pho ga": "Phở gà",
+            "com tam": "Cơm tấm sườn bì chả",
+            "com ga": "Cơm gà xối mỡ",
+            "bun thit nuong": "Bún thịt nướng chả giò",
+            "mi y": "Mì Ý sốt kem nấm bacon",
+            "pasta": "Mì Ý sốt kem nấm bacon",
+            "sashimi": "Sashimi cá hồi tươi",
+            "sushi": "Sashimi cá hồi tươi",
+            "com tron": "Cơm trộn Bibimbap bò",
+            "bibimbap": "Cơm trộn Bibimbap bò",
+            "banh khot": "Bánh khọt tôm thịt",
+            "mi cay": "Mì cay hải sản cấp độ 2",
+            "salad": "Salad cá ngừ",
+            "goi cuon": "Gỏi cuốn tôm thịt",
+            "lau thai": "Lẩu Thái mini",
+            "chao ga": "Cháo gà nóng",
+            "chao": "Cháo gà nóng",
+            "uc ga": "Ức gà áp chảo",
+            "mi ramen": "Mì ramen gà",
+            "ramen": "Mì ramen gà",
+            "bun rieu": "Bún riêu",
+            "banh mi": "Bánh mì thịt",
+        }
+        for kw, dish_name in keyword_to_dish.items():
+            if kw in text:
+                matched_dish = dish_name
+                break
+
     if matched_dish:
         entities.dish_name = matched_dish
     else:

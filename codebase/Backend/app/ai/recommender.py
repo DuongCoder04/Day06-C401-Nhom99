@@ -107,8 +107,11 @@ def _to_suggestion(dish: Dish, reason: str) -> Suggestion:
     )
 
 
-def recommend(entities: Entities, limit: int = 3) -> list[Suggestion]:
+def recommend(entities: Entities, limit: int = 3, exclude_ids: list[str] | None = None) -> list[Suggestion]:
     dishes = load_menu()
+
+    if exclude_ids:
+        dishes = [dish for dish in dishes if dish.id not in exclude_ids]
 
     if entities.dish_name:
         dish_name_norm = normalize(entities.dish_name)

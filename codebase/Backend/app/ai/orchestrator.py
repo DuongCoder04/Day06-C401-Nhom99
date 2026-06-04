@@ -100,6 +100,9 @@ def _is_in_scope(message: str) -> bool:
         "sushi", "ramen", "tra sua", "sinh to", "chao ga", "goi cuon", "combo",
         "set an", "nhom", "nguoi", "healthy", "giam can", "protein", "chay",
         "mon chay", "khong cay", "di ung", "hai san",
+        # drinks & snacks
+        "nuoc", "ca phe", "cafe", "tra", "sinh to", "nuoc ep", "nuoc cam",
+        "nuoc chanh", "sua", "kem", "bap", "banh trang", "vit", "poke",
     ]
     ordering_signals = [
         "goi y", "chon", "dat", "them", "lay", "gio hang", "gio co gi",
@@ -248,7 +251,17 @@ def _collect_context(
             # Don't fetch mock suggestions if this is a restaurant query (web search will handle it)
             if is_restaurant_query:
                 return []
-            return recommend(entities)
+
+            # Detect if user asks for alternative/different suggestions
+            exclude_ids: list[str] = []
+            msg_norm = normalize(request.message)
+            alt_keywords = ["khac", "doi mon", "thay doi", "khong thich", "mon khac",
+                            "khac di", "goi y khac", "tim mon khac", "doi y", "chu khac"]
+            if any(k in msg_norm for k in alt_keywords):
+                prev = _get_last_suggestions(request.session_id)
+                exclude_ids = [s.id for s in prev]
+
+            return recommend(entities, exclude_ids=exclude_ids)
         return []
 
     # Run weather and web search concurrently if needed
